@@ -1,10 +1,8 @@
-from variables import datawarehouse_name
-
 #target DWH db (postgreSQL)
 dwh_db_connection_params= {
-    'username': 'tbd',
-    'password': 'tbd',
-    'host': 'tbd',
-    'port': 25060,
-    'database': '{}'.format(datawarehouse_name)
-},
+    'username': 'luisa',
+    'password': 'luisa2021!',
+    'host': '10.50.200.15',
+    'port': 5432,
+    'database': 'luisa'
+}

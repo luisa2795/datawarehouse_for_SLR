@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, exc, select
+from sqlalchemy import create_engine, exc #select, text
 import pandas as pd
 
 
@@ -16,7 +16,7 @@ class Database:
             echo=True, future=True)
 
 
-    def load_from_database(self, table):
+    def load_full_table(self, table):
         """Loads full table that is existing in the specified database table and returns it as dataframe.
         
         Args: 
@@ -28,10 +28,11 @@ class Database:
         Raises:
             ValueError: If the table does not exist in the DB.
             """
-        
+        #with self._engine.connect() as conn:
+            #return (conn.execute(text("SELECT * from {}".format(table))))
+        return (pd.read_sql_table(table, self._engine.connect()))
         
 
-    #TODO NOT USED YET
     def insert_to_database(self, data, table):
         """This function inserts data into a table of the database.
 
@@ -40,7 +41,7 @@ class Database:
             table (str): The name of the table the data should be inserted into
         """
         try:
-            data.to_sql(table, self._engine, if_exists='append')
+            data.to_sql(table, self._engine, if_exists='append', index=False)
         except exc.IntegrityError as error:
             print(error)
 
