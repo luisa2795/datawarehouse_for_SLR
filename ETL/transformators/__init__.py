@@ -1,2 +1,3 @@
 from .base_transformator import BaseTransformator
 from .keyword_transformator import KeywordTransformator
+from .author_transformator import AuthorTransformator

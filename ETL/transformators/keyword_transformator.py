@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 from transformators.base_transformator import BaseTransformator 
 
 class KeywordTransformator (BaseTransformator):
