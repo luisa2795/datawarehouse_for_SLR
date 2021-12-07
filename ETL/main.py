@@ -15,7 +15,11 @@ if __name__ == "__main__":
         keyw_trans.write_delta_keywords_to_dwh()
     
     elif process_step == 'Authors ETL':
-        pass
+        auth_trans=AuthorTransformator(sourcepath, dwh_db_connection_params)
+        auth_trans.load_unique_authors()
+        #TODO: test this!!!
+        auth_trans.write_delta_authors_to_dwh()
+        
 
     else:
         pass

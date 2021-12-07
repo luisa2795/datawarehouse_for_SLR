@@ -1,5 +1,7 @@
-from sqlalchemy import create_engine, exc #select, text
+from sqlalchemy import create_engine, exc
 import pandas as pd
+import sqlalchemy
+from sqlalchemy.sql.schema import MetaData
 
 
 class Database:
@@ -14,6 +16,7 @@ class Database:
         self._engine = create_engine('postgresql://{}:{}@{}:{}/{}'.format(
             connection_params['username'], connection_params['password'], connection_params['host'], connection_params['port'], connection_params['database']), 
             echo=True, future=True)
+        #self._metadata=MetaData()
 
 
     def load_full_table(self, table):
@@ -45,4 +48,12 @@ class Database:
         except exc.IntegrityError as error:
             print(error)
 
+    def execute_update_query(self, sql_query):
+        #TODO docstings to change single attributes of entries in the database
+        statement=sqlalchemy.text(sql_query)
+        with self._engine.connect() as con:
+            result=con.execute(statement)
+            print(result.last_updated_params())
+
+        
 

@@ -20,6 +20,8 @@ class KeywordTransformator (BaseTransformator):
         super().__init__(sourcepath, connection_params)
         self._unique_keywords=None
         self._keywords_in_dwh = self._targetdb.load_full_table('dim_keyword')
+        #determine highest primary key in the table
+        self._max_pk=max(self._keywords_in_dwh.keyword_pk, default=0)
 
 
     def load_unique_keywords(self): 
@@ -36,12 +38,10 @@ class KeywordTransformator (BaseTransformator):
     
         """
         if not self._unique_keywords.empty:
-            #determine highest primary key in the table
-            max_pk=max(self._keywords_in_dwh.keyword_pk, default=0)
             #determine which keywords have not yet been inserted into table
             delta_keywords=self._unique_keywords[~self._unique_keywords.isin(self._keywords_in_dwh.keyword_string)]
             #create df from delta keywords and a consecutive key, starting from max_pk +1
-            delta_keyword_df=pd.DataFrame(data=list(range(max_pk+1, max_pk+1+delta_keywords.size)),columns=['keyword_pk'])
+            delta_keyword_df=pd.DataFrame(data=list(range(self._max_pk+1, self._max_pk+1+delta_keywords.size)),columns=['keyword_pk'])
             delta_keyword_df['keyword_string']=delta_keywords
             self.write_to_dwh(delta_keyword_df, 'dim_keyword')
         else:

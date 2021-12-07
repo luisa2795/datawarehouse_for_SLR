@@ -1,5 +1,9 @@
 import pandas as pd
+from gensim.parsing.preprocessing import strip_numeric
+import re
+import numpy as np
 from transformators.base_transformator import BaseTransformator 
+
 
 class AuthorTransformator (BaseTransformator):
     """Extracts, Transforms and Loads the author dimension.
@@ -19,7 +23,8 @@ class AuthorTransformator (BaseTransformator):
         #init is inherited from base class
         super().__init__(sourcepath, connection_params)
         self._unique_authors=None
-        #self._keywords_in_dwh = self._targetdb.load_full_table('dim_keyword')
+        self._authors_in_dwh = self._targetdb.load_full_table('dim_author')
+        self._max_pk=max(self._authors_in_dwh.author_pk, default=0)
 
     def load_unique_authors(self):
         """Loads data from authors and unique_references sourcefiles, merges them and merges duplicate authors.
@@ -28,6 +33,56 @@ class AuthorTransformator (BaseTransformator):
         auth_authors=self._clean_authors_from_authors(from_authors)
         from_references=self.load_sourcefile('unique_references.csv')
         reference_authors=self._clean_authors_from_references(from_references)
+        self._unique_authors=auth_authors.append(reference_authors, sort=False, ignore_index=True)
+
+    def write_delta_authors_to_dwh(self):
+        """Finds authors in source table that are not yet represented in the DWH. 
+        Then those authors are appended as new rows to the dim_author table with subsequent primary keys.
+
+        SLOWLY CHANGING DIMENSIONS
+    
+        """
+        if not self._unique_authors.empty:
+            #add the columns needed for SCD capturing
+            self._unique_authors['row_effective_date']=pd.to_datetime('today').normalize()
+            self._unique_authors['row_expiration_date']=pd.Timestamp.max.normalize()
+            self._unique_authors['current_row_indicator']='Current'
+            
+            #perform a left join on the fresh source data and the DWH data on the author names
+            left=pd.merge(self._unique_authors, self._authors_in_dwh, how = 'left', on=['surname', 'firstname', 'middlename'], suffixes=[None, '_db'])
+            #get the rows that were not previously present in the DWH
+            completely_new=left[left.current_row_indicator_db.isna()]
+            [['surname', 'firstname', 'middlename', 'email', 'departments', 'institutions', 'countries', 'row_effective_date', 'row_expiration_date', 'current_row_indicator']]
+            #and already insert it into the DWH
+            completely_new['author_pk']=list(range(self._max_pk+1, self._max_pk+1+completely_new.size))
+            completely_new.rename(columns={'departments': 'department', 'institutions': 'institution', 'countries': 'country'})
+            self.write_to_dwh(completely_new, 'dim_author')
+            #increase max_pk by the size of the just inserted dataframe
+            self._max_pk=self._max_pk+1+completely_new.size
+
+            #get the rows that were in the DWH before already
+            maybe_changed=left[~left.current_row_indicator_db.isna()]
+            #check whether the information about 'departments', 'institutions', 'countries' in the intersecting rows has really changed and if it is not just all NaN - here we would want to add a new row (type 2 SCD)
+            SCD2_change=maybe_changed[(
+                (maybe_changed['departments']!=maybe_changed['departments_db']) | 
+                (maybe_changed['institutions']!=maybe_changed['institutions_db']) | 
+                (maybe_changed['countries']!=maybe_changed['countries_db'])
+                ) & 
+                (~maybe_changed[['departments', 'institutions', 'countries', 'departments_db', 'institutions_db', 'countries_db']].isnull().all(1))
+                ]
+            #here we will change in the existing row the expiration date to today and mark the entry as 'Expired', then add a new row with the fresh institute data as it is in the source
+            self._update_SCD2_attributes(SCD2_change)
+            
+            #find changes in email but no other changes
+            SCD1_change=maybe_changed[
+                (maybe_changed['email']!=maybe_changed['email_db']) & 
+                (~maybe_changed.index.isin(SCD2_change.index)) & 
+                (~maybe_changed['email'].isnull())
+                ]
+            #here we will just overwrite the email with the email from source data
+            self._update_SCD1_attributes(SCD1_change)
+        else:
+            raise AttributeError('Please load unique authors first.')
 
     def _clean_authors_from_references(self, references_df):
         #create a new dataframe of authors where each author gets an own row and empty rows are discarded
@@ -64,8 +119,21 @@ class AuthorTransformator (BaseTransformator):
         reference_authors.drop_duplicates(inplace=True, ignore_index=True)
         return reference_authors
 
-    def _clean_authors_from_authors(authors_df):
-        pass
+    def _clean_authors_from_authors(self, authors_df):
+        #some cells in the source data still contain numbers, html tags or @ tags, these are removed
+        authors_df.fullname=authors_df.fullname.apply(lambda fn: self._remove_numbers_amp_and_at_tags(fn))
+        #then split the fullname again into the columns first-, middle- and surname
+        authors_df[['surname', 'firstname', 'middlename']]=pd.DataFrame(authors_df.fullname.apply(lambda fn: self._split_fullname(fn)).to_list(), index=authors_df.index)
+        #merge duplicate authors, if fullnames are identical. From email and institute information take the majority, if any, otherwise impute 'MISSING'
+        aggregate_functions={'surname': 'first', 
+        'firstname': 'first', 
+        'middlename': 'first', 
+        'email': lambda x: self._try_impute_missing(x.mode()),
+        'departments': lambda x: self._try_impute_missing(x.mode()), 
+        'institutions': lambda x: self._try_impute_missing(x.mode()), 
+        'countries': lambda x: self._try_impute_missing(x.mode())}
+        authors_df= authors_df.groupby('fullname')[['firstname', 'middlename', 'surname', 'email','departments', 'institutions', 'countries']].agg(aggregate_functions)
+        return authors_df
 
     def _split_into_lists_of_two_strings(names):
         """Takes list of names and splits it into sublists of length 2.
@@ -85,3 +153,76 @@ class AuthorTransformator (BaseTransformator):
             all.append(auth)
             names2=names2[2:]
         return all
+
+    def _remove_numbers_amp_and_at_tags(fullname):
+        """removes numbers, &amp tags, @institutions, semicolons and round brackets.
+        
+        Args:
+            fullname(str): the fullname of an author entry.
+        
+        Returns:
+            The cleaned string.
+        """
+        fullname=strip_numeric(fullname)
+        fullname=re.sub('&\w+', '', fullname)
+        fullname=re.sub('@\w+', '', fullname)
+        fullname=re.sub('\| ', '', fullname)
+        fullname=re.sub('[;().|]', '', fullname)
+        fullname=fullname.strip()
+        return fullname
+
+    def _split_fullname(fullname):
+        """Splits a fullname into first-, middle- and surname.
+        
+        Args:
+            fullname(str): the string of the fullname.
+        
+        Returns:
+            The strings surname, firstname and middlename.
+        """
+        fn_list=fullname.split(', ')
+        fn_surname=fn_list[0]
+        if len(fn_list)>1:
+            first_middle=fn_list[1].split(' ')
+            firstname=first_middle[0]
+            if len(first_middle)>1:
+                middlename=first_middle[1]
+            else:
+                middlename=np.nan
+        else:
+            firstname=np.nan
+            middlename=np.nan
+        return fn_surname, firstname, middlename
+    
+    def _try_impute_missing (item):
+        #TODO docstrings
+        try:
+            return item[0]
+        except:
+            return np.nan
+
+    def _update_SCD2_attributes(self, SCD2_data):
+        #TODO docstrings
+        for index, row in SCD2_data.iterrows():
+            #set existing entry to expired
+            sql_update_expired="""UPDATE dim_author SET row_expiration_date={}, current_row_indicator='Expired' WHERE surname={}, firstname={}, middlename={}""".format(
+                row['row_effective_date'], row['surname'], row['firstname'], row['middlename']
+            )
+            self._targetdb.execute_update_query(sql_update_expired)
+            #insert a new row with fresh attributes
+            sql_insert_current="""INSERT INTO dim_author VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})""".format(
+                self._max_pk, row['surname'], row['firstname'], row['middlename'], 
+                row['email'], row['departments'], row['institutions'], row['countries'],
+                row['row_effective_date'], row['row_expiration_date'], row['current_row_indicator']
+            )
+            self._targetdb.execute_update_query(sql_insert_current)
+            self._max_pk+=1
+
+    def _update_SCD1_attributes(self, SDC1_data):
+        #TODO docstrings
+        for index, row in SCD1_data.iterrows():
+            #overwrite existing entry email
+            sql_update_mail="""UPDATE dim_author SET email={} WHERE surname={}, firstname={}, middlename={}""".format(
+                row['email'], row['surname'], row['firstname'], row['middlename']
+            )
+            self._targetdb.execute_update_query(sql_update_mail)

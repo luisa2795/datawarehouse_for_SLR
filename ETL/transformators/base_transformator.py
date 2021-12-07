@@ -20,6 +20,7 @@ class BaseTransformator:
     def __init__(self, sourcepath, connection_params):
          self.sourcepath=sourcepath
          self._targetdb = Database(connection_params)
+         self._max_pk=None
 
     def load_sourcefile (self, filename): 
         source_df=pd.read_csv(os.path.join(self.sourcepath, filename))
