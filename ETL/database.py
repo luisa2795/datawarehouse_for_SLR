@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, exc
 import pandas as pd
 import sqlalchemy
 from sqlalchemy.sql.schema import MetaData
+import psycopg2
 
 
 class Database:
@@ -17,6 +18,7 @@ class Database:
             connection_params['username'], connection_params['password'], connection_params['host'], connection_params['port'], connection_params['database']), 
             echo=True, future=True)
         #self._metadata=MetaData()
+        self._psycop2connect=psycopg2.connect(dbname=connection_params['database'], user=connection_params['username'], password=connection_params['password'], host=connection_params['host'], port=connection_params['port'])
 
 
     def load_full_table(self, table):
@@ -48,12 +50,18 @@ class Database:
         except exc.IntegrityError as error:
             print(error)
 
-    def execute_update_query(self, sql_query):
-        #TODO docstings to change single attributes of entries in the database
-        statement=sqlalchemy.text(sql_query)
+    def update_row(self, table, conditions, values):
+        #TODO docstrings, call this in SCD2 and SCD1 method in authortransformator
         with self._engine.connect() as con:
-            result=con.execute(statement)
-            print(result.last_updated_params())
+            statement=table.update().values(values).where(conditions)
+            con.execute(statement)
+
+    #TODO: maybe remove, currently unused
+    def execute_query(self, sql_query):
+        #TODO docstings to change single attributes of entries in the database
+        #statement=sqlalchemy.text(sql_query)
+        cur=self._psycop2connect.cursor()
+        cur.execute(sql_query)
 
         
 
