@@ -16,7 +16,7 @@ class Database:
         #initialize SQLAlchemy engine with given connection parameters, enable logging the SQL output and use the future version  (2.0)
         self._engine = create_engine('postgresql://{}:{}@{}:{}/{}'.format(
             connection_params['username'], connection_params['password'], connection_params['host'], connection_params['port'], connection_params['database']), 
-            echo=True, future=True)
+            future=True)#echo=True, 
         #self._metadata=MetaData()
         self._psycop2connect=psycopg2.connect(dbname=connection_params['database'], user=connection_params['username'], password=connection_params['password'], host=connection_params['host'], port=connection_params['port'])
 

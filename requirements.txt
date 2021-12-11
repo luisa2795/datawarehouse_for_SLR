@@ -1,0 +1,7 @@
+pandas
+sqlalchemy
+psycopg2
+gensim
+numpy
+re
+roman
