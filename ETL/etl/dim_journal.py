@@ -1,5 +1,5 @@
 import pandas as pd
-import common_functions as cof
+import etl.common_functions as cof
 import roman
 
 def extract_unique_journals_from_files():
@@ -25,8 +25,10 @@ def transform_delta_journals(source_journals, journals_in_dwh):
     delta_journals=pd.concat([outer,journals_in_dwh]).drop_duplicates(keep=False)
     #add a consecutive key, starting from max_pk +1
     max_pk=max(journals_in_dwh.journal_pk, default=0)
-
     delta_journals['journal_pk']=list(range(max_pk+1, max_pk+1+delta_journals.index.size))
+    #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
+    if max_pk==0:
+        delta_journals=delta_journals.append({'journal_pk': 0, 'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, ignore_index=True)
     return delta_journals
 
 def _volume_to_int(volume):

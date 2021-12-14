@@ -2,8 +2,8 @@ import pandas as pd
 from gensim.parsing.preprocessing import strip_numeric
 import re
 import numpy as np
-import common_functions as cof
-import database as db
+import etl.common_functions as cof
+import etl.database as db
 
     
 
@@ -48,6 +48,9 @@ def tramsform_delta_authors(source_authors, authors_in_dwh):
     max_pk=max(authors_in_dwh.author_pk, default=0)
     if not completely_new.empty:
         completely_new['author_pk']=list(range(max_pk+1, max_pk+1+completely_new.index.size))
+        #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
+        if max_pk==0:
+            completely_new=completely_new.append({'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING', 'row_effective_date': pd.to_datetime('today').normalize(), 'row_expiration_date': pd.Timestamp.max.normalize(), 'current_row_indicator': 'Current'}, ignore_index=True)
         #increase max_pk by the size of the just inserted dataframe
         max_pk=max_pk+1+completely_new.index.size
     #get the rows that were in the DWH before already
@@ -68,6 +71,9 @@ def tramsform_delta_authors(source_authors, authors_in_dwh):
             (~maybe_changed.index.isin(SCD2_change.index)) & 
             (~maybe_changed['email'].isnull())
             ]
+    else:
+        SCD2_change=pd.DataFrame()
+        SCD1_change=pd.DataFrame()
     return completely_new, SCD2_change, SCD1_change
 
 def _clean_authors_from_references():
@@ -91,7 +97,7 @@ def _clean_authors_from_references():
     #first split every string in list from each other, then split into sublist pairs of two
     change1=change1.apply(lambda l: _split_into_lists_of_two_strings(l))
     #and append now corrected series again to keep
-    keep.append(change1.explode())
+    keep=keep.append(change1.explode())
     #those that are shorter must be changed
     change2=ref_aut[ref_aut.str.len()<2]
     #those that are shorter than 2 letters can be dropped
@@ -103,7 +109,7 @@ def _clean_authors_from_references():
     #keep only those that contain two strings
     change2=change2[change2.str.len()==2]
     #and append the transformed rows to keep
-    keep.append(change2)
+    keep=keep.append(change2)
     #generate a new dataframe
     ref_aut_df=pd.DataFrame(keep)
     #split up authors column into surname and firstname
@@ -215,8 +221,9 @@ def _try_impute_missing (item):
     except:
         return np.nan
 
-def update_SCD2_attributes(psycop2connect, SCD2_data, authors_in_dwh):
+def update_SCD2_attributes(psycop2connect, SCD2_data, engine):
     #TODO docstrings
+    authors_in_dwh=db.load_full_table(engine, 'dim_author')
     max_pk=max(authors_in_dwh.author_pk, default=0)
     for index, row in SCD2_data.iterrows():
         #set existing entry to expired
@@ -228,7 +235,7 @@ def update_SCD2_attributes(psycop2connect, SCD2_data, authors_in_dwh):
         #insert a new row with fresh attributes
         max_pk+=1
         sql_insert_current="""INSERT INTO dim_author VALUES ({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')""".format(
-            self._max_pk, row['surname'], row['firstname'], row['middlename'], 
+            max_pk, row['surname'], row['firstname'], row['middlename'], 
             row['email'], row['department'], row['institution'], row['country'],
             row['row_effective_date'].date(), row['row_expiration_date'].date(), row['current_row_indicator']
         )

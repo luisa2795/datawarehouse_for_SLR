@@ -1,4 +1,5 @@
 import etl.database as db
+import etl.common_functions as cof
 import etl.dim_keyword as keyw
 import etl.dim_author as auth
 import etl.dim_journal as jour
@@ -23,9 +24,10 @@ if __name__ == "__main__":
         source_authors=auth.extract_unique_authors_from_files()
         new, SCD2, SCD1=auth.tramsform_delta_authors(source_authors, authors_in_dwh)
         db.insert_to_database(eng, new, 'dim_author')
-        auth.update_SCD2_attributes(psycop2connect, SCD2, authors_in_dwh)
-        auth.update_SCD1_attributes(psycop2connect, SCD1)
         #TODO: solve SCD issues, see todos in AuthorTransformator
+        auth.update_SCD2_attributes(psycop2connect, SCD2, eng)
+        auth.update_SCD1_attributes(psycop2connect, SCD1)
+        
         
     elif process_step == 'Journal ETL':
         journals_in_dwh=db.load_full_table(eng, 'dim_journal')
@@ -33,6 +35,16 @@ if __name__ == "__main__":
         delta_journals=jour.transform_delta_journals(source_journals, journals_in_dwh)
         db.insert_to_database(eng, delta_journals, 'dim_journal')
         
+    elif process_step == 'Paper ETL':
+        articles_df, references_df=pape.extract_all_papers()
+        #first prepare papers from 'papers_final'
+        articles_prep=pape.transform_papers(articles_df, eng)
+        references_prep=pape.transform_references(references_df, eng)
+        final_source_papers=pape.merge_all_papers(references_prep, articles_prep)
+        papers_in_dwh=db.load_full_table(eng, 'dim_paper')
+        delta_papers=pape.find_delta_papers(final_source_papers, papers_in_dwh)
+        db.insert_to_database(eng, delta_papers, 'dim_paper')
+
     else:
         pass
 

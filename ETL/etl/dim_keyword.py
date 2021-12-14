@@ -1,5 +1,5 @@
 import pandas as pd
-import common_functions as cof
+import etl.common_functions as cof
 
 
 def extract_unique_keywords_from_file(): 
@@ -25,6 +25,9 @@ def transform_delta_keywords(unique_keywords, keywords_in_dwh):
     #create df from delta keywords and a consecutive key, starting from max_pk +1
     delta_keyword_df=pd.DataFrame(data=list(range(max_pk+1, max_pk+1+delta_keywords.size)),columns=['keyword_pk'])
     delta_keyword_df['keyword_string']=delta_keywords
+    #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
+    if max_pk==0:
+        delta_keyword_df=delta_keyword_df.append({'keyword_pk': 0, 'keyword_string': 'MISSING'}, ignore_index=True)
     return delta_keyword_df
 
 
