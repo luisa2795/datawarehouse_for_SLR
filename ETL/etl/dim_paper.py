@@ -54,27 +54,53 @@ def merge_all_papers(prepared_references, prepared_authors):
 
     #merge papers from articles and from references
     all_papers=pd.merge(prepared_authors, prepared_references, how='outer', on='citekey', suffixes=['_art', '_ref'])
-    all_papers['year']=all_papers.apply(lambda x: x.year_art if x.year_art==x.year_art else x.year_ref, axis=1) 
+    all_papers['year']=all_papers.apply(lambda x: x.year_art if x.year_art==x.year_art else x.year_ref, axis=1)
+    all_papers['year']=all_papers.year.apply(lambda y: pd.to_datetime(int(y), format='%Y').normalize() if 1676<y<2263 else pd.to_datetime(1678, format='%Y').normalize()) 
     all_papers['title']=all_papers.apply(lambda x: x.title_art if x.title_art==x.title_art else x.title_ref, axis=1)
     all_papers['author_pk']=all_papers.apply(lambda x: x.author_pk_art if x.author_pk_art==x.author_pk_art else x.author_pk_ref, axis=1)
     all_papers['no_of_pages']=all_papers.apply(lambda x: x.number_of_pages_art if x.number_of_pages_art==x.number_of_pages_art else x.number_of_pages_ref, axis=1)
+    all_papers['no_of_pages']=all_papers.no_of_pages.apply(lambda x: x if x<2000000000 else 2000000000)
     all_papers['journal_pk']=all_papers.apply(lambda x: x.journal_pk_art if x.journal_pk_art==x.journal_pk_art else x.journal_pk_ref, axis=1)
     all_papers['keyword_pk']=all_papers['keyword_pk_art']
-    all_papers.fillna({'article_id': 0, 'author_position': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': 0, 'title': 'MISSING', 'author_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keyword_pk': 0}, inplace=True)
+    all_papers.fillna({'article_id': 0, 'author_position': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'author_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keyword_pk': 0}, inplace=True)
 
     final_papers=all_papers[['article_id', 'author_position', 'citekey', 'abstract', 'year', 'title', 'author_pk', 'no_of_pages', 'journal_pk', 'keyword_pk']]
-    return final_papers
+
+    return final_papers#, bridge_paper_keyword, bridge_paper_author
 
 def find_delta_papers(source_papers, papers_in_dwh):
-    outer=pd.merge(source_papers, papers_in_dwh, how='outer')[['article_id', 'author_position', 'citekey', 'abstract', 'year', 'title', 'author_pk', 'no_of_pages', 'journal_pk', 'keyword_pk']]
+    source_papers=source_papers.rename(columns={'article_id': 'article_source_id'})
+    outer=pd.merge(source_papers, papers_in_dwh, how='outer')[['article_source_id', 'author_position', 'citekey', 'abstract', 'year', 'title', 'author_pk', 'no_of_pages', 'journal_pk', 'keyword_pk']]
     delta_papers=pd.concat([outer,papers_in_dwh]).drop_duplicates(keep=False)
+    
+    #assign group_index for later authorgroup and keywordgroup, starting from 0
+    delta_papers['group_index']=delta_papers.groupby(by='citekey').ngroup(ascending=True)
+    #which is the highest group_index we have currently in the dwh?
+    max_group_pk=max(papers_in_dwh.keywordgroup_pk, default=0)
+    delta_papers['keywordgroup_pk']=delta_papers['group_index']+max_group_pk+1
+    delta_papers['authorgroup_pk']=delta_papers['group_index']+max_group_pk+1
+    delta_keywordbridge=delta_papers[['keywordgroup_pk', 'keyword_pk']].drop_duplicates()
+    delta_keywordgroup=pd.DataFrame(delta_keywordbridge['keywordgroup_pk']).drop_duplicates()
+    delta_authorbridge=delta_papers[['authorgroup_pk', 'author_pk', 'author_position']].drop_duplicates(subset=['authorgroup_pk', 'author_pk'], keep='first')
+    delta_authorgroup=pd.DataFrame(delta_authorbridge['authorgroup_pk']).drop_duplicates(subset=['authorgroup_pk'], keep='first')
+    #remove now not needed columns from paper df and drop duplicate rows now
+    delta_papers=delta_papers.drop(columns=['author_position', 'author_pk', 'keyword_pk', 'group_index'], axis=1).drop_duplicates()
     #add a consecutive key, starting from max_pk +1
     max_pk=max(papers_in_dwh.paper_pk, default=0)
-    delta_papers['journal_pk']=list(range(max_pk+1, max_pk+1+delta_papers.index.size))
+    delta_papers['paper_pk']=list(range(max_pk+1, max_pk+1+delta_papers.index.size))
+
+    #TODO solve no_of_pages issue, when bridge_sentence_citation is ready, for now 0 is assigned
+    delta_papers['no_of_references']=0
+
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_papers=delta_papers.append({'paper_pk': 0, 'article_id': 0, 'author_position': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': 0, 'title': 'MISSING', 'author_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keyword_pk': 0}, ignore_index=True)
-    return delta_papers
+        delta_papers=delta_papers.append({'paper_pk': 0, 'article_source_id': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'authorgroup_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keywordgroup_pk': 0, 'no_of_references': 0}, ignore_index=True)
+    if max_group_pk==0:
+        delta_keywordbridge=delta_keywordbridge.append({'keywordgroup_pk': 0, 'keyword_pk': 0}, ignore_index=True)
+        delta_keywordgroup=delta_keywordgroup.append({'keywordgroup_pk': 0}, ignore_index=True)
+        delta_authorbridge=delta_authorbridge.append({'authorgroup_pk': 0, 'author_pk': 0, 'author_position': 0}, ignore_index=True)
+        delta_authorgroup=delta_authorgroup.append({'authorgroup_pk': 0}, ignore_index=True)
+    return delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge
 
 def _join_articles_keyword_pk(articles_df, keywords_df, engine):
     #join with keywords and lookup exising foreign key 'keyword_pk'

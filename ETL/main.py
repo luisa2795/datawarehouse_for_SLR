@@ -5,6 +5,8 @@ import etl.dim_author as auth
 import etl.dim_journal as jour
 import etl.dim_paper as pape
 from db_credentials	import dwh_db_connection_params
+import pandas as pd
+pd.options.mode.chained_assignment = None  # default='warn'
 
 
 if __name__ == "__main__":
@@ -27,8 +29,7 @@ if __name__ == "__main__":
         #TODO: solve SCD issues, see todos in AuthorTransformator
         auth.update_SCD2_attributes(psycop2connect, SCD2, eng)
         auth.update_SCD1_attributes(psycop2connect, SCD1)
-        
-        
+            
     elif process_step == 'Journal ETL':
         journals_in_dwh=db.load_full_table(eng, 'dim_journal')
         source_journals=jour.extract_unique_journals_from_files()
@@ -42,9 +43,15 @@ if __name__ == "__main__":
         references_prep=pape.transform_references(references_df, eng)
         final_source_papers=pape.merge_all_papers(references_prep, articles_prep)
         papers_in_dwh=db.load_full_table(eng, 'dim_paper')
-        delta_papers=pape.find_delta_papers(final_source_papers, papers_in_dwh)
+        delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge=pape.find_delta_papers(final_source_papers, papers_in_dwh)
+        #insert everything to db tables. Attention, order matters here to not violate foreign key constraints!
+        db.insert_to_database(eng, delta_keywordgroup, 'dim_keywordgroup')
+        db.insert_to_database(eng, delta_keywordbridge, 'bridge_paper_keyword')
+        db.insert_to_database(eng, delta_authorgroup, 'dim_authorgroup')
+        db.insert_to_database(eng, delta_authorbridge, 'bridge_paper_author')
         db.insert_to_database(eng, delta_papers, 'dim_paper')
 
     else:
         pass
+
 
