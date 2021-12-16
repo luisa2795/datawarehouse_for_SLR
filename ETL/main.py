@@ -5,11 +5,12 @@ import etl.dim_author as auth
 import etl.dim_journal as jour
 import etl.dim_paper as pape
 import etl.dim_paragraph as para
+import etl.dim_sentence as sent
 from db_credentials	import dwh_db_connection_params
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
 
-
+#TODO write down which step depends on which other step
 if __name__ == "__main__":
     
     process_step = input('Which process step should be executed? ')
@@ -60,7 +61,14 @@ if __name__ == "__main__":
         delta_paragraphs=para.find_delta_paragraphs(transformed_paragraphs, paragraphs_in_dwh)
         db.insert_to_database(eng, delta_paragraphs, 'dim_paragraph')
 
-
+    elif process_step == 'Sentence ETL':
+        sentences_in_dwh=db.load_full_table(eng, 'dim_sentence')
+        source_sentences=sent.extract_sentences_from_files()
+        transformed_sentences=sent.transform_sentences(source_sentences, eng)
+        delta_citationgroup, delta_sentence_citation_bridge, delta_sentences=sent.find_delta_sentences(transformed_sentences, sentences_in_dwh)
+        db.insert_to_database(eng, delta_citationgroup, 'dim_citationgroup')
+        db.insert_to_database(eng, delta_sentence_citation_bridge, 'bridge_sentence_citation')
+        db.insert_to_database(eng, delta_sentences, 'dim_sentence')
 
     else:
         pass
