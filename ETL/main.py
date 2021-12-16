@@ -4,6 +4,7 @@ import etl.dim_keyword as keyw
 import etl.dim_author as auth
 import etl.dim_journal as jour
 import etl.dim_paper as pape
+import etl.dim_paragraph as para
 from db_credentials	import dwh_db_connection_params
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -45,11 +46,21 @@ if __name__ == "__main__":
         papers_in_dwh=db.load_full_table(eng, 'dim_paper')
         delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge=pape.find_delta_papers(final_source_papers, papers_in_dwh)
         #insert everything to db tables. Attention, order matters here to not violate foreign key constraints!
+        #TODO: make all inserts one transaction that rolls back when one insert fails
         db.insert_to_database(eng, delta_keywordgroup, 'dim_keywordgroup')
         db.insert_to_database(eng, delta_keywordbridge, 'bridge_paper_keyword')
         db.insert_to_database(eng, delta_authorgroup, 'dim_authorgroup')
         db.insert_to_database(eng, delta_authorbridge, 'bridge_paper_author')
         db.insert_to_database(eng, delta_papers, 'dim_paper')
+
+    elif process_step== 'Paragraph ETL':
+        paragraphs_in_dwh=db.load_full_table(eng, 'dim_paragraph')
+        source_paragraphs=para.extract_unique_paragraphs_from_file()
+        transformed_paragraphs=para.transform_paragraphs(source_paragraphs, eng)
+        delta_paragraphs=para.find_delta_paragraphs(transformed_paragraphs, paragraphs_in_dwh)
+        db.insert_to_database(eng, delta_paragraphs, 'dim_paragraph')
+
+
 
     else:
         pass

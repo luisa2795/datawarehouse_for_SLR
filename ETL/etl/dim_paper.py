@@ -89,12 +89,9 @@ def find_delta_papers(source_papers, papers_in_dwh):
     max_pk=max(papers_in_dwh.paper_pk, default=0)
     delta_papers['paper_pk']=list(range(max_pk+1, max_pk+1+delta_papers.index.size))
 
-    #TODO solve no_of_pages issue, when bridge_sentence_citation is ready, for now 0 is assigned
-    delta_papers['no_of_references']=0
-
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_papers=delta_papers.append({'paper_pk': 0, 'article_source_id': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'authorgroup_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keywordgroup_pk': 0, 'no_of_references': 0}, ignore_index=True)
+        delta_papers=delta_papers.append({'paper_pk': 0, 'article_source_id': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'authorgroup_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keywordgroup_pk': 0}, ignore_index=True)
     if max_group_pk==0:
         delta_keywordbridge=delta_keywordbridge.append({'keywordgroup_pk': 0, 'keyword_pk': 0}, ignore_index=True)
         delta_keywordgroup=delta_keywordgroup.append({'keywordgroup_pk': 0}, ignore_index=True)
