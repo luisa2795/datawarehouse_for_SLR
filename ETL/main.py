@@ -6,6 +6,7 @@ import etl.dim_journal as jour
 import etl.dim_paper as pape
 import etl.dim_paragraph as para
 import etl.dim_sentence as sent
+import etl.dim_entity as enti
 from db_credentials	import dwh_db_connection_params
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -69,6 +70,15 @@ if __name__ == "__main__":
         db.insert_to_database(eng, delta_citationgroup, 'dim_citationgroup')
         db.insert_to_database(eng, delta_sentence_citation_bridge, 'bridge_sentence_citation')
         db.insert_to_database(eng, delta_sentences, 'dim_sentence')
+
+    elif process_step == 'Entity ETL':
+        entities_in_dwh=db.load_full_table(eng, 'dim_entity')
+        source_entities=enti.extract_entities_from_file()
+        delta_dimension_entities, delta_entities=enti.transform_delta_entities(source_entities, entities_in_dwh)
+        db.insert_to_database(eng, delta_dimension_entities, 'dim_entity')
+        all_entities_in_dwh=db.load_full_table(eng, 'dim_entity')
+        delta_entity_hierarchy_map=enti.transform_delta_entity_hierarchy_map(delta_entities, all_entities_in_dwh)
+        db.insert_to_database(eng, delta_entity_hierarchy_map, 'map_entity_hierarchy')
 
     else:
         pass
