@@ -1,5 +1,4 @@
 import etl.database as db
-import etl.common_functions as cof
 import etl.dim_keyword as keyw
 import etl.dim_author as auth
 import etl.dim_journal as jour
@@ -7,6 +6,7 @@ import etl.dim_paper as pape
 import etl.dim_paragraph as para
 import etl.dim_sentence as sent
 import etl.dim_entity as enti
+import etl.fact_entity_detection as fact
 from db_credentials	import dwh_db_connection_params
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -79,6 +79,12 @@ if __name__ == "__main__":
         all_entities_in_dwh=db.load_full_table(eng, 'dim_entity')
         delta_entity_hierarchy_map=enti.transform_delta_entity_hierarchy_map(delta_entities, all_entities_in_dwh)
         db.insert_to_database(eng, delta_entity_hierarchy_map, 'map_entity_hierarchy')
+
+    elif process_step == 'Fact ETL':
+        facts_in_dwh=db.load_full_table(eng, 'fact_entity_detection')
+        source_facts=fact.extract_unique_facts_from_file()
+        delta_facts=fact.transform_delta_facts(source_facts, facts_in_dwh, eng)
+        db.insert_to_database(eng, delta_facts, 'fact_entity_detection')
 
     else:
         pass
