@@ -3,12 +3,26 @@ import etl.database as db
 import pandas as pd
 
 def extract_unique_facts_from_file():
+    """Extracts facts about entity detections in a sentence from the source file entities.csv.
+    
+    Returns: 
+        DataFrame of entities without duplicates.
+    """
     source_facts=cof.load_sourcefile('entities.csv')
     #as some sentences have duplicate entities, we drop these now. TODO: introduce fact measure 'entity count'?
     source_facts.drop_duplicates(inplace=True)
     return source_facts
 
 def transform_delta_facts(source_facts, facts_in_dwh, engine):
+    """Exchanges entity and sentence for their foreign keys and finds delta of facts in the source file vs those in the DB.
+    
+    Args:
+        source_facts (DataFrame): df of source entities.
+        facts_in_dwh (DataFrame): df of facts currently present in the DB table fact_entity_detection.
+        engine (SQLAlchemy engine): engine object to connect to the target DB.
+    Returns:
+        DataFrame of transformed delta rows of facts, ready to load into fact_entity_detection table.
+    """
     #first get sentence_pk and entity_pk and substitute the names in the source facts with it
     dim_sentence=db.load_full_table(engine, 'dim_sentence')
     dim_entity=db.load_full_table(engine, 'dim_entity')

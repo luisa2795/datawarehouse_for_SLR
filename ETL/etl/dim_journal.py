@@ -3,7 +3,10 @@ import etl.common_functions as cof
 import roman
 
 def extract_unique_journals_from_files():
-    """Loads uniqe journals from papers and references and triggers cleaning and removal of duplicates.
+    """Loads unique journals from papers and references and triggers cleaning and removal of duplicates.
+
+    Returns:
+        DataFrame of cleaned and unique journals from source files.
     """
     from_papers=cof.load_sourcefile('papers_final.csv')[['journal', 'volume', 'issue', 'publisher', 'place']]
     from_references=cof.load_sourcefile('unique_references.csv')[['journal', 'volume', 'issue', 'publisher', 'place']]
@@ -16,9 +19,14 @@ def extract_unique_journals_from_files():
     return all_journals
 
 def transform_delta_journals(source_journals, journals_in_dwh):
-    """Finds journals in source table that are not yet represented in the DWH. 
-    Then those journals are appended as new rows to the dim_journal table with subsequent primary keys.
+    """Finds journals in source table that are not yet represented in the DWH and adds a column of subsequent primary keys.
 
+    Args:
+        source_journals (DataFrame): journals from the source files.
+        journals_in_dwh (DataFrame): df of the current table dim_journal.
+    
+    Returns:
+        DataFrame containing delta journals not yet present in DB in a transformed format, with pk, ready to load.
     """
     #determine which journals have not yet been inserted into table
     outer=pd.merge(source_journals, journals_in_dwh, how='outer')[['title', 'volume', 'issue', 'publisher', 'place']]
@@ -32,6 +40,14 @@ def transform_delta_journals(source_journals, journals_in_dwh):
     return delta_journals
 
 def _volume_to_int(volume):
+    """Helper function, transforming the volume of a journal to an integer as required in DB schema.
+    
+    Args:
+        volume (object): value from the volume column of dtype object, containing the info in numeric format, as string or as Roman number. 
+    
+    Returns:
+        Volume as integer, if the transformation was not successful the dummy value 0 is returned.
+    """
     try:
         vol=int(volume)
     except:
@@ -44,6 +60,14 @@ def _volume_to_int(volume):
     return vol
 
 def _issue_to_int(issue):
+    """Helper function, transforming issue of journal to an integer.
+    
+    Args:
+        issue (object): value from issue column of dtype object, containing the info either as numeric value, as list or as string.
+        
+    Returns:
+        Issue as integer, if the transformation was not successful the dummy value 0 is returned.
+    """
     try: 
         iss=int(issue)
     except:

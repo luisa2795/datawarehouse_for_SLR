@@ -3,6 +3,12 @@ import etl.database as db
 import pandas as pd
 
 def extract_sentences_from_files():
+    """Extracts sentences as df from the source file sentences.csv.
+    Empty sentences or those that contain no content related meaning, like tags, tables and headers are dropped.
+    
+    Returns:
+        DataFrame of meaningful sentences from the source file.
+    """
     source_sentences=cof.load_sourcefile('sentences.csv')[['sentence_id', 'para_id', 'sentence', 'sentence_type']]
     source_sentences.dropna(axis=0, subset=['sentence'], inplace=True)
     #drop sentences that only contain of whitespaces
@@ -12,6 +18,15 @@ def extract_sentences_from_files():
     return source_sentences
 
 def transform_sentences(source_sentences, engine):
+    """Transforms sentences to contain a paper_pk that points to the paper that is eventually referenced in that sentence and a paragraph_pk of the containing paragraph.
+    
+    Args:
+        source_sentences (DataFrame): df of sentences from the souce file.
+        engine (SQLAlchemy engine): engine object to connect to the target DB.
+    
+    Returns:
+        Dataframe of sentences with paragraph_pk and citation paper_pk.
+    """
     #load foreign keys from citations papers
     citations=cof.load_sourcefile('citations.csv')[['sentence_id', 'reference_citekey']]
     papers_in_dwh=db.load_full_table(engine, 'dim_paper')[['citekey', 'paper_pk']]
@@ -25,7 +40,17 @@ def transform_sentences(source_sentences, engine):
     return sentences_with_para_pk
 
 def find_delta_sentences(transformed_sentences, sentences_in_dwh):
-    #get maximum primary currently in db and group pk for citations
+    """Finds delta of sentences in source file and those present in the DB table dim_sentence. For the delta rows, a citationgroup_pk is added.
+    
+    Args:
+        transformed_sentences (DataFrame): transformed source sentences.
+        sentences_in_dwh (DataFrame): sentences currently present in the DB table dim_sentence.
+    Returns: 
+        DataFrame of delta citationgroups, ready to be inserted into dim_citationgroup.
+        DataFrame of delta sentence_citation combinations, ready to be inserted into bridge_sentence_citation.
+        DataFrame of delta sentences, ready to be inserted into dim_sentence.
+    """
+    #get maximum primary key currently in db and group pk for citations
     max_pk=max(sentences_in_dwh.sentence_pk, default=0)
     max_citationgroup_pk=max(sentences_in_dwh.citationgroup_pk, default=0)
     #find subset of entries not yet present in dwh

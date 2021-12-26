@@ -5,24 +5,28 @@ import etl.dim_journal as jour
 import etl.database as db
 import roman
 
-
-    # def __init__(self, sourcepath, connection_params):
-    #     super().__init__(sourcepath, connection_params)
-    #     self._unique_papers=None
-    #     self._papers_in_dwh = self._targetdb.load_full_table('dim_paper')
-    #     self._max_pk=max(self._papers_in_dwh.author_pk, default=0)
     
 def extract_all_papers():
-    """Loads data from papers_final and unique_references sourcefiles, merges them and merges duplicate papers.
+    """Loads data from papers_final.csv and unique_references.csv sourcefiles.
+    
+    Returns:
+        DataFrame of papers from papers_final sourcefile.
+        DataFrame of papers from unique_references sourcefile.
     """
     from_papers=cof.load_sourcefile('papers_final.csv')
-    #auth_authors=self._clean_authors_from_authors(from_authors)
     from_references=cof.load_sourcefile('unique_references.csv')
-    #reference_authors=self._clean_authors_from_references(from_references)
-    #self._unique_authors=pd.merge(auth_authors, reference_authors, how='outer', on=['surname', 'firstname', 'middlename'], suffixes=[None, '_ref'])[['surname', 'firstname', 'middlename', 'email', 'department', 'institution', 'country']]
     return from_papers, from_references
 
 def transform_papers(source_papers, engine):
+    """Transforms papers from papers_final source: triggers the addition of keyword_pk, author_pk and journal_pk.
+    
+    Args: 
+        source_papers (DataFrame): df of source file from papers_final.
+        engine (SQL Alchemy engine): engine to connect to the target DB.
+    
+    Returns: 
+        DataFrame of prepared papers. The group primary keys are not created yet, so papers with e.g. multiple keywords are listed in multiple rows, each with different keyword_pk.
+    """
     keywords_df=cof.load_sourcefile('keywords.csv')
     articles_prep=_join_articles_keyword_pk(source_papers, keywords_df, engine)
     #join articles with authors and lookup existing foreign key author_pk
@@ -35,6 +39,16 @@ def transform_papers(source_papers, engine):
     return articles_prep
 
 def transform_references(source_references, engine):
+    """Transforms papers from unique_references source: triggers the addition of author_pk and journal_pk.
+    As keywords are not present in the source data, the dummy keyword_pk of 0 is added to each reference which will point to MISSING keywords.
+    
+    Args: 
+        source_references (DataFrame):
+        engine (SQL Alchemy engine): engine to connect to target DB.
+    
+    Returns:
+        DataFrame of prepared references. As in transform_papers() the group primary keys are not created yet, which is why for each author, a paper has a row in the returned df. 
+    """
     # create 'keyword_pk'=0 for papers from references with reference to dummy entry in dim_keyword
     references_prep=source_references.assign(keyword_pk=0)
     #join references with authors and lookup existing foreign key author_pk
@@ -45,15 +59,26 @@ def transform_references(source_references, engine):
     references_prep=_join_papers_journal_pk(references_prep, engine).drop(columns=['source_type', 'editor', 'monograph_title', 'note'], axis=1)
     return references_prep
 
-def merge_all_papers(prepared_references, prepared_authors):
+def merge_all_papers(prepared_references, prepared_papers):
+    """Merges prepared references and prepared papers to one df.
+    
+    Args:
+        prepared_references (DataFrame): The references df resulting from transform references() with primary keys added.
+        prepared_papers (DataFrame): The papers df resulting from transform_papers() with primary keys added.
+    
+    Returns:
+        DataFrame of merged papers with page numbers calculated and filled missing values.
+    """
+    #split start and end of pages from references into two columns, then transform the page numbers to integers
     prepared_references.pages=prepared_references.pages.apply(lambda x: x.split('-') if x==x else [0, 0])
     prepared_references[['pages_start', 'pages_end']]=pd.DataFrame(prepared_references.pages.tolist(), index=prepared_references.index)
     prepared_references.pages_start=prepared_references.pages_start.apply(lambda p: _page_number_to_int(p))
     prepared_references.pages_end=prepared_references.pages_end.apply(lambda p: _page_number_to_int(p))
-    prepared_references['number_of_pages']=prepared_references.pages_end+prepared_references.pages_start
+    #calculate the difference between start and end as number of pages
+    prepared_references['number_of_pages']=prepared_references.pages_end-prepared_references.pages_start
 
     #merge papers from articles and from references
-    all_papers=pd.merge(prepared_authors, prepared_references, how='outer', on='citekey', suffixes=['_art', '_ref'])
+    all_papers=pd.merge(prepared_papers, prepared_references, how='outer', on='citekey', suffixes=['_art', '_ref'])
     all_papers['year']=all_papers.apply(lambda x: x.year_art if x.year_art==x.year_art else x.year_ref, axis=1)
     all_papers['year']=all_papers.year.apply(lambda y: pd.to_datetime(int(y), format='%Y').normalize() if 1676<y<2263 else pd.to_datetime(1678, format='%Y').normalize()) 
     all_papers['title']=all_papers.apply(lambda x: x.title_art if x.title_art==x.title_art else x.title_ref, axis=1)
@@ -65,10 +90,22 @@ def merge_all_papers(prepared_references, prepared_authors):
     all_papers.fillna({'article_id': 0, 'author_position': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'author_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keyword_pk': 0}, inplace=True)
 
     final_papers=all_papers[['article_id', 'author_position', 'citekey', 'abstract', 'year', 'title', 'author_pk', 'no_of_pages', 'journal_pk', 'keyword_pk']]
-
-    return final_papers#, bridge_paper_keyword, bridge_paper_author
+    return final_papers
 
 def find_delta_papers(source_papers, papers_in_dwh):
+    """Compares merged source papers with data in the DB and finds delta of rows. 
+    For this delta_df, a primary key, authorgroup_pk and keywordgroup_pk are added, bridge tables and separate group dimensions are created. 
+    
+    Args:
+        source_papers (DataFrame): The transformed and merged source papers.
+        papers_in_dwh (DataFrame): The data currently present in the DB table dim_paper as pandas df.
+    Returns:  
+        DataFrame of delta papers, ready to insert into dim_paper.
+        DataFrame of delta keywordgroup, ready to insert into dim_keywordgroup.
+        DataFrame of delta rows ready to insert into bridge_paper_keyword.
+        DataFrame of delta authorgroup, ready to insert into dim_authorgroup.
+        DataFrame of delta rows ready to insert into bridge_paper_author.
+    """
     source_papers=source_papers.rename(columns={'article_id': 'article_source_id'})
     outer=pd.merge(source_papers, papers_in_dwh, how='outer')[['article_source_id', 'author_position', 'citekey', 'abstract', 'year', 'title', 'author_pk', 'no_of_pages', 'journal_pk', 'keyword_pk']]
     delta_papers=pd.concat([outer,papers_in_dwh]).drop_duplicates(keep=False)
@@ -100,6 +137,16 @@ def find_delta_papers(source_papers, papers_in_dwh):
     return delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge
 
 def _join_articles_keyword_pk(articles_df, keywords_df, engine):
+    """Joins papers with keywords so that a keyword_pk is added to each row.
+    
+    Args:
+        articles_df (DataFrame): dataframe of the source file final_papers.
+        keywords_df (DataFrame): dataframe of the source file keywords.csv.
+        engine (SQLAlchemy engine): engine object to connect to the target DB.
+    
+    Returns: 
+        DataFrame of papers with a keyword_pk instead of keyword itself.
+    """
     #join with keywords and lookup exising foreign key 'keyword_pk'
     keywords_df["keyword"]=keywords_df["keyword"].str.lower()
     articles_prep=pd.merge(articles_df, keywords_df, how='outer', on='article_id')
@@ -111,8 +158,18 @@ def _join_articles_keyword_pk(articles_df, keywords_df, engine):
     return articles_prep
 
 def _prepare_article_authors(authors_df, articles_df):
+    """Prepares the author fullname column from the authors sourcefile as it is done during the transformations for the author dimension. 
+    Then the transformed authors are merged to the paper file.
+    
+    Args: 
+        authors_df (DataFrame): df from the source file authors.csv.
+        articles_df (DataFrame): prepared df from the source file papers_final.
+
+    Returns: 
+        DataFrame of papers with columns for the authors first-, middle- and surname. If a paper has multiple authors it is listed miltiple times, each author gets one row.
+    """
     #some cells in the source data still contain numbers, html tags or @ tags, these are removed
-    authors_df.fullname=authors_df.fullname.apply(lambda f: auth._remove_numbers_amp_and_at_tags(f))
+    authors_df.fullname=authors_df.fullname.apply(lambda f: auth._remove_numbers_tags_and_signs(f))
     #then split the fullname again into the columns first-, middle- and surname
     authors_df[['surname', 'firstname', 'middlename']]=pd.DataFrame(authors_df.fullname.apply(lambda fn: auth._split_fullname(fn)).to_list(), index=authors_df.index)
     article_authors=pd.merge(authors_df, articles_df, how='outer', on='article_id').drop(columns=['fullname', 'authors'])
@@ -120,23 +177,57 @@ def _prepare_article_authors(authors_df, articles_df):
     return article_authors
 
 def _join_papers_author_pk(articles_df, engine):
+    """Exchanges author name for a foreign key to author in dim_author.
+    
+    Args: 
+        articles_df (DataFrame): prepared df of papers, must contain columns surname, middlename and firstname.
+        engine (SQLAlchemy engine): engine object to connect to the target DB.
+    
+    Returns:
+        DataFrame of papers with author_pk.
+    """
     authors_in_dwh=db.load_full_table(engine, 'dim_author')
     joined=pd.merge(articles_df, authors_in_dwh, how= 'left', on=['surname', 'firstname', 'middlename'])
     return joined
 
 def _prepare_paper_journals(paper_df):
+    """Prepares the journal-related columns in the papers df like it is done during the transformations for the journal dimension. 
+    
+    Args: 
+        paper_df (DataFrame): df of papers, must contain the columns journal, volume, issue, publisher, place.
+
+    Returns: 
+        DataFrame of papers with transformed journal information.
+    """
     paper_df.fillna({'journal': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, inplace=True)
     paper_df.volume=paper_df.volume.apply(lambda v: jour._volume_to_int(v))
     paper_df.issue=paper_df.issue.apply(lambda i: jour._issue_to_int(i))
     return paper_df
 
 def _join_papers_journal_pk(paper_df, engine):
+    """Exchanges journal information for a foreign key to journal in dim_journal.
+    
+    Args: 
+        paper_df (DataFrame): prepared df of papers, must contain the transformed columns journal, volume, issue, publisher, place.
+        engine (SQLAlchemy engine): engine object to connect to the target DB.
+    
+    Returns:
+        DataFrame of papers with journal_pk.
+    """
     journals_in_dwh=db.load_full_table(engine, 'dim_journal').rename({'title': 'journal'})
     joined=pd.merge(paper_df, journals_in_dwh, how='left', left_on=['journal', 'volume', 'issue', 'publisher', 'place'], right_on=['title', 'volume', 'issue', 'publisher', 'place'], suffixes=[None, '_db'])
     joined=joined.drop(columns=['journal', 'volume', 'issue', 'publisher', 'place', 'title_db'], axis=1)
     return joined
 
 def _prepare_reference_authors(references_df):
+    """Prepares the author column from the unique_references sourcefile so that each author is in a seperate row and has values for firstname, middlename and surname. 
+    
+    Args: 
+        references_df (DataFrame): df from the source file unique_references.
+
+    Returns: 
+        DataFrame of references with columns for the authors first-, middle- and surname. If a paper has multiple authors it is listed miltiple times, each author gets one row.
+    """
     references_df.authors=references_df['authors'].str.split('; ').explode(ignore_index=True).str.split(', ')
     references_df.dropna(axis=0, subset=['authors'], inplace=True)
     #remove the 'Van' if existing in strings that are longer tan 2, as checks have shown these are most probably parsing errors
@@ -174,6 +265,14 @@ def _prepare_reference_authors(references_df):
     return ref_prep
 
 def _page_number_to_int(page):
+    """Function to convert a page number, which can be numeric, a roman number or a string, into an integer.
+    
+    Args:
+        page (object): page information of one paper, as it is parsed from the sourcefile.
+    
+    Returns: 
+        Page number of dtype integer.
+    """
     try:
         p=int(page) 
     except:

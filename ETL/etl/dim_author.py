@@ -5,13 +5,12 @@ import numpy as np
 import etl.common_functions as cof
 import etl.database as db
 
-    
 
 def extract_unique_authors_from_files():
     """Loads data from authors and unique_references sourcefiles, merges them and merges duplicate authors.
     
     Returns:
-        Dataframe of cleaned and conformed authors
+        Dataframe of cleaned and conformed authors.
     """
     from_authors=_clean_authors_from_authors()
     from_references=_clean_authors_from_references()
@@ -27,6 +26,9 @@ def tramsform_delta_authors(source_authors, authors_in_dwh):
     If the author changed Department, Institute or county, the old entry is set to expired and a new row is inserted in the table
     If only the email adress changes, it is overwritten in the existing row.
 
+    Args:
+        source_authors (DataFrame): cleaned and conformed authors from source files.
+        authors_in_dwh (DataFrame): currently present rows in database table dim_author.
     Returns:
         Dataframe to append to dim_author db table.
         Dataframe of candidates for slowly changing dimensions type 2.
@@ -77,13 +79,10 @@ def tramsform_delta_authors(source_authors, authors_in_dwh):
     return completely_new, SCD2_change, SCD1_change
 
 def _clean_authors_from_references():
-    """Cleans the source data from the unique_references.csv file to the desired format.
-    
-    Args:
-        references_df(DataFrame): The dataframe from unique_references.csv.
+    """Loads and cleans the source data from the unique_references.csv file to the desired format.
     
     Returns:
-        The cleaned DataFrame.
+        The cleaned DataFrame containing surname, firstname and middlename ('MISSING' in all cases) of reference authors.
     """
     references_df=cof.load_sourcefile('unique_references.csv')
     #create a new dataframe of authors where each author gets an own row and empty rows are discarded
@@ -122,17 +121,14 @@ def _clean_authors_from_references():
     return reference_authors
 
 def _clean_authors_from_authors():
-    """Cleans the source data from the authors.csv file to the desired format.
-    
-    Args:
-        authors_df(DataFrame): The dataframe from authors.csv.
+    """Loads and cleans the source data from the authors.csv file to the desired format.
     
     Returns:
-        The cleaned DataFrame.
+        The cleaned DataFrame of conformed and aggregated authors.
     """
     authors_df=cof.load_sourcefile('authors.csv').rename(columns={'departments': 'department', 'institutions': 'institution', 'countries': 'country'})
     #some cells in the source data still contain numbers, html tags or @ tags, these are removed
-    authors_df.fullname=authors_df.fullname.apply(lambda f: _remove_numbers_amp_and_at_tags(f))
+    authors_df.fullname=authors_df.fullname.apply(lambda f: _remove_numbers_tags_and_signs(f))
     #then split the fullname again into the columns first-, middle- and surname
     authors_df[['surname', 'firstname', 'middlename']]=pd.DataFrame(authors_df.fullname.apply(lambda fn: _split_fullname(fn)).to_list(), index=authors_df.index)
     #merge duplicate authors, if fullnames are identical. From email and institute information take the majority, if any, otherwise impute 'MISSING'
@@ -165,11 +161,11 @@ def _split_into_lists_of_two_strings(names):
         names2=names2[2:]
     return all
 
-def _remove_numbers_amp_and_at_tags(fullname):
-    """removes numbers, &amp tags, @institutions, semicolons and round brackets.
+def _remove_numbers_tags_and_signs(fullname):
+    """removes numbers, tags, semicolons and round brackets.
     
     Args:
-        fullname(str): the fullname of an author entry.
+        fullname (str): the fullname of an author entry.
     
     Returns:
         The cleaned string.
@@ -214,7 +210,7 @@ def _try_impute_missing (item):
         item(list or str): The attribute mode, it is a list if there are several most frequent values for one attribute.
         
     Returns:
-        Atomic attribute value, either the first option or NaN
+        Atomic attribute value, either the first option or NaN.
     """
     try:
         return item[0]

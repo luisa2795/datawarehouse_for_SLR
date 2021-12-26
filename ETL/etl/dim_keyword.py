@@ -17,6 +17,12 @@ def transform_delta_keywords(unique_keywords, keywords_in_dwh):
     """Finds keywords in source table that are not yet represented in the DWH. 
     Then those keywords are returned as new rows with subsequent primary keys, ready for loading.
 
+    Args:
+        unique_keywords (Series): unique keywords from the source file.
+        keywords_in_dwh (DataFrame): df of the current data present in the DB table dim_keyword.
+    
+    Returns:
+        DataFrame of delta keyword rows with subsequent primary keys, ready to be added to DB table.
     """
     #determine which keywords have not yet been inserted into table
     delta_keywords=unique_keywords[~unique_keywords.isin(keywords_in_dwh.keyword_string)]
