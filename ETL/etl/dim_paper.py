@@ -32,7 +32,7 @@ def transform_papers(source_papers, engine):
     #join articles with authors and lookup existing foreign key author_pk
     authors_df=cof.load_sourcefile('authors.csv').rename(columns={'departments': 'department', 'institutions': 'institution', 'countries': 'country'})
     articles_prep=_prepare_article_authors(authors_df, articles_prep)
-    articles_prep=_join_papers_author_pk(articles_prep, engine).drop(columns=['surname', 'firstname', 'middlename','email_x', 'department_x', 'institution_x', 'country_x', 'email_y', 'department_y', 'institution_y', 'country_y', 'row_effective_date', 'row_expiration_date', 'current_row_indicator'], axis=1)
+    articles_prep=_join_papers_author_pk(articles_prep, engine).drop(columns=['surname', 'firstname', 'middlename','email_x', 'department_x', 'institution_x', 'country_x', 'email_y', 'department_y', 'institution_y', 'country_y'], axis=1)
     #join articles with journals and lookup existing foreign key journal_pk
     articles_prep=_prepare_paper_journals(articles_prep)
     articles_prep=_join_papers_journal_pk(articles_prep, engine).drop(columns=['journal_akronym'], axis=1)
@@ -53,7 +53,7 @@ def transform_references(source_references, engine):
     references_prep=source_references.assign(keyword_pk=0)
     #join references with authors and lookup existing foreign key author_pk
     references_prep=_prepare_reference_authors(references_prep)
-    references_prep=_join_papers_author_pk(references_prep, engine).drop(columns=['authors', 'surname', 'firstname', 'middlename', 'email', 'department', 'institution', 'country', 'row_effective_date', 'row_expiration_date', 'current_row_indicator'], axis=1)
+    references_prep=_join_papers_author_pk(references_prep, engine).drop(columns=['authors', 'surname', 'firstname', 'middlename', 'email', 'department', 'institution', 'country'], axis=1)
     #join articles with journals and lookup existing foreign key journal_pk
     references_prep=_prepare_paper_journals(references_prep)
     references_prep=_join_papers_journal_pk(references_prep, engine).drop(columns=['source_type', 'editor', 'monograph_title', 'note'], axis=1)
@@ -84,7 +84,7 @@ def merge_all_papers(prepared_references, prepared_papers):
     all_papers['title']=all_papers.apply(lambda x: x.title_art if x.title_art==x.title_art else x.title_ref, axis=1)
     all_papers['author_pk']=all_papers.apply(lambda x: x.author_pk_art if x.author_pk_art==x.author_pk_art else x.author_pk_ref, axis=1)
     all_papers['no_of_pages']=all_papers.apply(lambda x: x.number_of_pages_art if x.number_of_pages_art==x.number_of_pages_art else x.number_of_pages_ref, axis=1)
-    all_papers['no_of_pages']=all_papers.no_of_pages.apply(lambda x: x if x<2000000000 else 2000000000)
+    all_papers['no_of_pages']=all_papers.no_of_pages.apply(lambda x: x if 0<x<2000000000 else 0)
     all_papers['journal_pk']=all_papers.apply(lambda x: x.journal_pk_art if x.journal_pk_art==x.journal_pk_art else x.journal_pk_ref, axis=1)
     all_papers['keyword_pk']=all_papers['keyword_pk_art']
     all_papers.fillna({'article_id': 0, 'author_position': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'author_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keyword_pk': 0}, inplace=True)

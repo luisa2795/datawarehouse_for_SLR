@@ -3,7 +3,6 @@ from gensim.parsing.preprocessing import strip_numeric
 import re
 import numpy as np
 import etl.common_functions as cof
-import etl.database as db
 
 
 def extract_unique_authors_from_files():
@@ -21,62 +20,29 @@ def extract_unique_authors_from_files():
 def tramsform_delta_authors(source_authors, authors_in_dwh):
     """Finds authors in source table that are not yet represented in the DWH. 
     Then those authors are appended as new rows to the dim_author table with subsequent primary keys.
-
-    SLOWLY CHANGING DIMENSIONS:
-    If the author changed Department, Institute or county, the old entry is set to expired and a new row is inserted in the table
-    If only the email adress changes, it is overwritten in the existing row.
-
+    changes in the columns 'email', 'department', 'institution', 'country' are ignored (SCD0 do nothing)
     Args:
         source_authors (DataFrame): cleaned and conformed authors from source files.
         authors_in_dwh (DataFrame): currently present rows in database table dim_author.
     Returns:
         Dataframe to append to dim_author db table.
-        Dataframe of candidates for slowly changing dimensions type 2.
-        Dataframe of candidates for slowly changing dimensions type 2.
     """
-    #add the columns needed for SCD capturing
-    #JUST FOR TESTING, TODO: remove
-    #self._unique_authors['row_effective_date']=(pd.to_datetime('today')+pd.DateOffset(days=3)).normalize()
-    source_authors['row_effective_date']=pd.to_datetime('today').normalize()
-    source_authors['row_expiration_date']=pd.Timestamp.max.normalize()
-    source_authors['current_row_indicator']='Current'
+
     #fill NaN and Null values to not violate NOT NULL constraint in DWH
     source_authors.fillna(value='MISSING', inplace=True)
     #perform a left join on the fresh source data and the DWH data on the author names
     left=pd.merge(source_authors, authors_in_dwh, how = 'left', on=['surname', 'firstname', 'middlename'], suffixes=[None, '_db'])
     #get the rows that were not previously present in the DWH
-    completely_new=left[left.current_row_indicator_db.isna()][['surname', 'firstname', 'middlename', 'email', 'department', 'institution', 'country', 'row_effective_date', 'row_expiration_date', 'current_row_indicator']]
+    completely_new=left[left.author_pk.isna()][['surname', 'firstname', 'middlename', 'email', 'department', 'institution', 'country']]
     #and already insert it into the DWH if it is not empty
     max_pk=max(authors_in_dwh.author_pk, default=0)
     if not completely_new.empty:
         completely_new['author_pk']=list(range(max_pk+1, max_pk+1+completely_new.index.size))
         #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
         if max_pk==0:
-            completely_new=completely_new.append({'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING', 'row_effective_date': pd.to_datetime('today').normalize(), 'row_expiration_date': pd.Timestamp.max.normalize(), 'current_row_indicator': 'Current'}, ignore_index=True)
-        #increase max_pk by the size of the just inserted dataframe
-        max_pk=max_pk+1+completely_new.index.size
-    #get the rows that were in the DWH before already
-    maybe_changed=left[~left.current_row_indicator_db.isna()]
-    if not maybe_changed.empty:
-        #check whether the information about 'departments', 'institutions', 'countries' in the intersecting rows has really changed and if it is not just all NaN - here we would want to add a new row (type 2 SCD)
-        SCD2_change=maybe_changed[(
-            (maybe_changed['department']!=maybe_changed['department_db']) | 
-            (maybe_changed['institution']!=maybe_changed['institution_db']) | 
-            (maybe_changed['country']!=maybe_changed['country_db'])
-            ) & 
-            (~maybe_changed[['department', 'institution', 'country', 'department_db', 'institution_db', 'country_db']].isnull().all(1))
-            ]
-    
-        #find changes in email but no other changes
-        SCD1_change=maybe_changed[
-            (maybe_changed['email']!=maybe_changed['email_db']) & 
-            (~maybe_changed.index.isin(SCD2_change.index)) & 
-            (~maybe_changed['email'].isnull())
-            ]
-    else:
-        SCD2_change=pd.DataFrame()
-        SCD1_change=pd.DataFrame()
-    return completely_new, SCD2_change, SCD1_change
+            completely_new=completely_new.append({'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING'}, ignore_index=True)
+    #TODO if there is time, write function to overwrite 'email', 'department', 'institution', 'country' wen they are changed (SCD1) 
+    return completely_new
 
 def _clean_authors_from_references():
     """Loads and cleans the source data from the unique_references.csv file to the desired format.
@@ -140,6 +106,7 @@ def _clean_authors_from_authors():
     'institution': lambda x: _try_impute_missing(x.mode()), 
     'country': lambda x: _try_impute_missing(x.mode())}
     authors_df= authors_df.groupby('fullname')[['firstname', 'middlename', 'surname', 'email','department', 'institution', 'country']].agg(aggregate_functions)
+    #TODO: merge authors if surname and fullname are identical and for the rest of the values everything is missing, current merging allows two entries (Abbott, Pamela, MISSING) and (Abbott, Pamela, Y)
     return authors_df
 
 def _split_into_lists_of_two_strings(names):
@@ -216,32 +183,3 @@ def _try_impute_missing (item):
         return item[0]
     except:
         return np.nan
-
-def update_SCD2_attributes(psycop2connect, SCD2_data, engine):
-    #TODO docstrings
-    authors_in_dwh=db.load_full_table(engine, 'dim_author')
-    max_pk=max(authors_in_dwh.author_pk, default=0)
-    for index, row in SCD2_data.iterrows():
-        #set existing entry to expired
-        #TODO: SQL statement looks good, why does it not get executed on Db server? Test with authors_SCD.csv testset
-        sql_update_expired="""UPDATE dim_author SET row_expiration_date='{}', current_row_indicator='Expired' WHERE surname='{}' AND firstname='{}' AND middlename='{}'""".format(
-            row['row_effective_date'].date(), row['surname'], row['firstname'], row['middlename']
-        )
-        db.execute_query(psycop2connect, sql_update_expired)
-        #insert a new row with fresh attributes
-        max_pk+=1
-        sql_insert_current="""INSERT INTO dim_author VALUES ({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')""".format(
-            max_pk, row['surname'], row['firstname'], row['middlename'], 
-            row['email'], row['department'], row['institution'], row['country'],
-            row['row_effective_date'].date(), row['row_expiration_date'].date(), row['current_row_indicator']
-        )
-        db.execute_query(psycop2connect, sql_insert_current)
-
-def update_SCD1_attributes(psycop2connect, SDC1_data):
-    #TODO docstrings
-    for index, row in SDC1_data.iterrows():
-        #TODO:SQL statement looks good, why does it not get executed on Db server? Test with authors_SCD.csv testset
-        sql_update_mail="""UPDATE dim_author SET email='{}' WHERE surname='{}' AND firstname='{}' AND middlename='{}'""".format(
-            row['email'], row['surname'], row['firstname'], row['middlename']
-        )
-        db.execute_query(psycop2connect, sql_update_mail)
