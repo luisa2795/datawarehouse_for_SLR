@@ -7,6 +7,7 @@ import etl.dim_paragraph as para
 import etl.dim_sentence as sent
 import etl.dim_entity as enti
 import etl.fact_entity_detection as fact
+import etl.aggregation_paper as agg_pape
 from db_credentials	import dwh_db_connection_params
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -16,7 +17,7 @@ if __name__ == "__main__":
     
     process_step = input('Which process step should be executed? ')
     #initialize engine
-    eng, psycop2connect=db.initialize_engine(connection_params=dwh_db_connection_params)
+    eng=db.initialize_engine(connection_params=dwh_db_connection_params)
 
     if process_step == 'Keyword ETL':
         keywords_in_dwh = db.load_full_table(eng, 'dim_keyword')
@@ -83,6 +84,11 @@ if __name__ == "__main__":
         delta_facts=fact.transform_delta_facts(source_facts, facts_in_dwh, eng)
         db.insert_to_database(eng, delta_facts, 'fact_entity_detection')
 
+    elif process_step == 'Aggregation Paper ETL':
+        sentences_with_ents, papers_in_dwh=agg_pape.extract_source_data(eng)
+        aggregated_papers=agg_pape.calc_agg_columns(sentences_with_ents, papers_in_dwh)
+        db.insert_to_database(eng, aggregated_papers, 'aggregation_paper', if_exists='replace')
+        
     else:
         pass
 
