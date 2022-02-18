@@ -8,7 +8,7 @@ import etl.dim_sentence as sent
 import etl.dim_entity as enti
 import etl.fact_entity_detection as fact
 import etl.aggregation_paper as agg_pape
-from db_credentials	import dwh_db_connection_params
+from credentials import DB_CONNECTION_PARAMS
 import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     
     process_step = input('Which process step should be executed? ')
     #initialize engine
-    eng=db.initialize_engine(connection_params=dwh_db_connection_params)
+    eng=db.initialize_engine(connection_params=DB_CONNECTION_PARAMS)
 
     if process_step == 'Keyword ETL':
         keywords_in_dwh = db.load_full_table(eng, 'dim_keyword')
