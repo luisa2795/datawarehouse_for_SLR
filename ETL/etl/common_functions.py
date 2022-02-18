@@ -83,7 +83,7 @@ def strip_single_quote(s):
     Returns:
         String without single quote.
     """
-    return re.sub(".\'.", " ", s)
+    return re.sub("'", "", s)
 
 def word_to_int(word):
     """Formats strings to integers if they only contain numbers or they have punctuation that is likely a thousands separator.

@@ -8,10 +8,10 @@ def extract_entities_from_file():
         DataFrame with source entities label, id and path.
     """
     for_map_and_dim=cof.load_sourcefile('entities.csv')[['label', 'ent_id', 'ent_path']]
+    for_map_and_dim.drop_duplicates(inplace=True)
     #strip stingle quotes from some entities (e.g. in scholars') as this was causing issues in querying these in Postgres
     for_map_and_dim['ent_id']=for_map_and_dim['ent_id'].apply(cof.strip_single_quote)
     for_map_and_dim['ent_path']=for_map_and_dim['ent_path'].apply(cof.strip_single_quote)
-    for_map_and_dim.drop_duplicates(inplace=True)
     return for_map_and_dim
 
 def transform_delta_entities(source_entities, entities_in_dwh):
