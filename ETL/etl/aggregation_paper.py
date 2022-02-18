@@ -1,14 +1,34 @@
 import etl.database as db
 import pandas as pd
 import re
+import etl.common_functions as cof
 
 def extract_source_data(engine):
+    """Extracts source data about papers and sentences with entities from the data warehouse.
+    
+    Args:
+        engine (SQL Alchemy engine): engine to connect to the target DB.
+
+    Returns:
+        DataFrame of sentences, paragraph headings and entities that were detected in these sentences.
+        DataFrame of the paper dimension in the data warehouse.
+    """
     sql_query='select paper_pk, heading, paragraph_type,  sentence_string, sentence_type, entity_count, entity_label, entity_name from (select sentence_string, sentence_type, paragraph_pk, entity_count, entity_label, entity_name from (select sentence_pk, entity_count, entity_label, entity_name from fact_entity_detection fed inner join dim_entity de on fed.entity_pk = de.entity_pk) as fact_ent_join left join dim_sentence ds on fact_ent_join.sentence_pk=ds.sentence_pk) as sent_ent_join left join dim_paragraph dp on sent_ent_join.paragraph_pk=dp.paragraph_pk'
     sentences_with_ents=db.load_df_from_query(engine, sql_query)
     papers_in_dwh=db.load_full_table(engine, 'dim_paper')
     return sentences_with_ents, papers_in_dwh
 
 def calc_agg_columns(sentences_with_ents, papers_in_dwh):
+    """Adds an aggregation column for each entity category to the paper DataFrame, plus two numeric columns (participant number and metric value). 
+    The values of the new columns are aggregated by different strategies, chosen after the most likely approach to select the most relevant entity for a paper.
+    
+    Args:
+        sentences_with_ents (DataFrame): Df of sentences, paragraph headings and entities that were detected in these sentences.
+        papers_in_dwh (DataFrame): Df of the paper dimension in the data warehouse.
+
+    Returns: 
+        DataFrame of papers with aggregated entities.
+    """
     #model_element
     model_element=sentences_with_ents[sentences_with_ents.entity_label=='MODEL_ELEMENT']
     me=model_element.groupby(by='paper_pk')[['entity_name']].agg(lambda x: x.mode()[0]).reset_index()
@@ -26,7 +46,7 @@ def calc_agg_columns(sentences_with_ents, papers_in_dwh):
     #no_of_participants
     ents_agg_pa=pd.merge(participants_w[['paper_pk', 'sentence_string', 'entity_name']], papers_pa[['paper_pk', 'participants']], how='left', on='paper_pk')
     cite_sep='START_CITE .* END_CITE' 
-    ents_agg_pa['participant_number']=ents_agg_pa.apply(lambda row: list(filter(None, [word_to_int(word) for word in [item for sublist in [re.split(cite_sep, sent)[0].split() for sent in row['sentence_string']] for item in sublist]])) if row['entity_name'][0]==row['participants'] else [], axis=1)
+    ents_agg_pa['participant_number']=ents_agg_pa.apply(lambda row: list(filter(None, [cof.word_to_int(word) for word in [item for sublist in [re.split(cite_sep, sent)[0].split() for sent in row['sentence_string']] for item in sublist]])) if row['entity_name'][0]==row['participants'] else [], axis=1)
     nop=ents_agg_pa.groupby(by='paper_pk')[['participant_number']].agg(lambda x: x.explode().mode()).reset_index()
     nop['no_of_participants']=nop.participant_number.apply(lambda x: x if isinstance(x, int) else(x[0] if len(x)!=0 else 0)) 
     papers_nop=pd.merge(papers_pa, nop[['paper_pk', 'no_of_participants']], how='left', on='paper_pk').fillna(0)
@@ -62,7 +82,7 @@ def calc_agg_columns(sentences_with_ents, papers_in_dwh):
     papers_me=pd.merge(papers_reg, me, how='left', on='paper_pk').rename(columns={'entity_name': 'metric'}).fillna('MISSING')
     #metric_value
     ents_agg_me=pd.merge(metric_w[['paper_pk', 'sentence_string', 'entity_name']], papers_me[['paper_pk', 'metric']], how='left', on='paper_pk')
-    ents_agg_me['all_values']=ents_agg_me.apply(lambda row: list(filter(None, [word_to_float(word) for word in [item for sublist in [re.split(cite_sep, sent)[0].split() for sent in row['sentence_string']] for item in sublist]])) if row['entity_name'][0]==row['metric'] else [], axis=1)
+    ents_agg_me['all_values']=ents_agg_me.apply(lambda row: list(filter(None, [cof.word_to_float(word) for word in [item for sublist in [re.split(cite_sep, sent)[0].split() for sent in row['sentence_string']] for item in sublist]])) if row['entity_name'][0]==row['metric'] else [], axis=1)
     mv=ents_agg_me.groupby(by='paper_pk')[['all_values']].agg(lambda x: x.explode().mode()).reset_index()
     mv['metric_value']=mv.all_values.apply(lambda x: x if isinstance(x, float) else(x[0] if len(x)!=0 else 0)) 
     papers_mv=pd.merge(papers_me, mv[['paper_pk', 'metric_value']], how='left', on='paper_pk').fillna(0)
@@ -100,34 +120,37 @@ def calc_agg_columns(sentences_with_ents, papers_in_dwh):
     return papers_va
 
 
-def word_to_int(word):
-    """Formats strings to booleans if they only contain numbers or they have punctuation that is likely a thousands separator.
+def weigh_entity_by_sentence_type (increased_weights_types, row):
+    """Increases the weight of an entity to 150%, if it occurs in a sentence of a given type.
     
     Args:
-        word (str): any word from a sentence.
+        increased_weights_types (list): List of sentence types which have an increased influence on an entity weight in the aggreation.
+        row (df row): DataFrame row containing the values for sentence_type and entity_name.
     
     Returns:
-        the corrensponding integer, if the word could be translated to one, otherwise no return-value.
+        Row with increased weights. If the entity occured in a sentence of the increased importance, it is repeated 15 times, otherwise it is repeated 10 times.
     """
-    if bool(re.fullmatch("[0-9]+([,.][0-9]{3})*?", word)):
-        return(int(re.sub("[,.]", "", word)))
-    else:
-        pass
-
-def word_to_float(word):
-    try:
-        return (float(word))
-    except:
-        pass
-
-def weigh_entity_by_sentence_type (incresed_weights_types, row):
-    if row['sentence_type'] in incresed_weights_types:
+    if row['sentence_type'] in increased_weights_types:
         row['entity_name']=[row['entity_name']] * 15  * row['entity_count']
     else:
         row['entity_name']=[row['entity_name']] * 10 * row['entity_count']
     return row
 
 def weigh_entity_by_heading (heading_pattern, row, exclude_entities=[], weigh_sentences=False):
+    """Increases the weight of an entity to 150%, if it occurs in a sentence from a paragraph with a specific heading pattern.
+    Entity names can be specified to be excluded, which would result in a decrease of their weight to 10%. 
+    The sentence string can be weighed by the same logic if required.
+    
+    Args:
+        heading_pattern (list): List of regex patterns which would indicated a heading that increases an entity's weight in the aggreation.
+        row (df row): DataFrame row containing the values for sentence_string, heading and entity_name.
+        exclude_entities (list): List of entities whose weight shall be decreased to 10% in any case.
+        weigh_sentences (bool): Boolean indicating whether to weigh sentences as well (True) or not (False).
+    
+    Returns:
+        Row with increased weights. If the entity occured under a heading of increased importance, it is repeated 15 times, otherwise it is repeated 10 times. 
+        If it was within the list of entities to be excluded, it is not repeated at all. Sentences are weighed accordingly if weigh_sentences was True.
+    """
     if row['entity_name'] in exclude_entities:
         row['entity_name']=[row['entity_name']]
         if weigh_sentences:
