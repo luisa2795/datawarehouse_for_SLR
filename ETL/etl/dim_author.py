@@ -60,7 +60,7 @@ def _clean_authors_from_references():
     #those that are longer must be changed
     change1=ref_aut[ref_aut.str.len()>2]
     #first split every string in list from each other, then split into sublist pairs of two
-    change1=change1.apply(lambda l: _split_into_lists_of_two_strings(l))
+    change1=change1.apply(lambda l: cof.split_into_lists_of_two_strings(l))
     #and append now corrected series again to keep
     keep=keep.append(change1.explode())
     #those that are shorter must be changed
@@ -68,7 +68,7 @@ def _clean_authors_from_references():
     #those that are shorter than 2 letters can be dropped
     change2=change2[change2.explode().str.len()>2]
     #many rows contain names that are just not separated by comma and therefore not recognized. lets split them into sublist of two strings each
-    change2=change2.apply(lambda l: _split_into_lists_of_two_strings(l))
+    change2=change2.apply(lambda l: cof.split_into_lists_of_two_strings(l))
     #unnest lists to new rows
     change2=change2.explode()
     #keep only those that contain two strings
@@ -108,25 +108,6 @@ def _clean_authors_from_authors():
     authors_df= authors_df.groupby('fullname')[['firstname', 'middlename', 'surname', 'email','department', 'institution', 'country']].agg(aggregate_functions)
     #TODO: merge authors if surname and fullname are identical and for the rest of the values everything is missing, current merging allows two entries (Abbott, Pamela, MISSING) and (Abbott, Pamela, Y)
     return authors_df
-
-def _split_into_lists_of_two_strings(names):
-    """Takes list of names and splits it into sublists of length 2.
-    If the length of the split and flattened list is uneven, the last string is dropped.
-    
-    Args:
-        names(list): list of names of multiple authors.
-
-    Returns:
-        list of sublists with each sublist containing surname and firstname of one author.
-    """
-    #split strings upon ' '  and flatten the resulting list of sublists
-    names2=[item for sublist in [s.split(' ') for s in names] for item in sublist]
-    all=[]
-    while len(names2) > 2:
-        auth=names2[:2]
-        all.append(auth)
-        names2=names2[2:]
-    return all
 
 def _remove_numbers_tags_and_signs(fullname):
     """removes numbers, tags, semicolons and round brackets.

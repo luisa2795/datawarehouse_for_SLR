@@ -1,7 +1,6 @@
 import pandas as pd
 import etl.common_functions as cof
 import etl.dim_author as auth
-import etl.dim_journal as jour
 import etl.database as db
 import roman
 
@@ -200,8 +199,8 @@ def _prepare_paper_journals(paper_df):
         DataFrame of papers with transformed journal information.
     """
     paper_df.fillna({'journal': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, inplace=True)
-    paper_df.volume=paper_df.volume.apply(lambda v: jour._volume_to_int(v))
-    paper_df.issue=paper_df.issue.apply(lambda i: jour._issue_to_int(i))
+    paper_df.volume=paper_df.volume.apply(lambda v: cof.volume_to_int(v))
+    paper_df.issue=paper_df.issue.apply(lambda i: cof.issue_to_int(i))
     return paper_df
 
 def _join_papers_journal_pk(paper_df, engine):
@@ -237,7 +236,7 @@ def _prepare_reference_authors(references_df):
     #those that are longer must be changed
     change1=references_df[references_df.authors.str.len()>2]
     #first split every string in list from each other, then split into sublist pairs of two
-    change1.authors=change1.authors.apply(lambda l:auth. _split_into_lists_of_two_strings(l)).explode()
+    change1.authors=change1.authors.apply(lambda l: cof.split_into_lists_of_two_strings(l)).explode()
     #and append now corrected series again to keep
     keep.append(change1)
     #those that are shorter must be changed
@@ -246,7 +245,7 @@ def _prepare_reference_authors(references_df):
     change3=change2[change2.authors.explode().str.len()>2]
     missing=change2[change2.authors.explode().str.len()<2]
     #many rows contain names that are just not separated by comma and therefore not recognized. lets split them into sublist of two strings each
-    change3.authors=change3.authors.apply(lambda l: auth._split_into_lists_of_two_strings(l))
+    change3.authors=change3.authors.apply(lambda l: cof.split_into_lists_of_two_strings(l))
     #unnest lists to new rows
     change3=change3.explode('authors')
     #keep only those that contain two strings, others will be missing

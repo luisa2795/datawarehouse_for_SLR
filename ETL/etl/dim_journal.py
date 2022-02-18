@@ -1,6 +1,5 @@
 import pandas as pd
 import etl.common_functions as cof
-import roman
 
 def extract_unique_journals_from_files():
     """Loads unique journals from papers and references and triggers cleaning and removal of duplicates.
@@ -13,8 +12,8 @@ def extract_unique_journals_from_files():
     all_journals=from_references.append(from_papers, ignore_index=True).rename(columns={'journal': 'title'})
     all_journals.dropna(axis=0, how='all', inplace=True)
     all_journals.fillna({'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, inplace=True)
-    all_journals.volume=all_journals.volume.apply(lambda v: _volume_to_int(v))
-    all_journals.issue=all_journals.issue.apply(lambda i: _issue_to_int(i))
+    all_journals.volume=all_journals.volume.apply(lambda v: cof.volume_to_int(v))
+    all_journals.issue=all_journals.issue.apply(lambda i: cof.issue_to_int(i))
     all_journals.drop_duplicates(inplace=True)
     return all_journals
 
@@ -39,40 +38,4 @@ def transform_delta_journals(source_journals, journals_in_dwh):
         delta_journals=delta_journals.append({'journal_pk': 0, 'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, ignore_index=True)
     return delta_journals
 
-def _volume_to_int(volume):
-    """Helper function, transforming the volume of a journal to an integer as required in DB schema.
-    
-    Args:
-        volume (object): value from the volume column of dtype object, containing the info in numeric format, as string or as Roman number. 
-    
-    Returns:
-        Volume as integer, if the transformation was not successful the dummy value 0 is returned.
-    """
-    try:
-        vol=int(volume)
-    except:
-        try:
-            vol=roman.fromRoman(volume)
-        except:
-            vol=0
-    if vol>10000:
-        vol=0
-    return vol
 
-def _issue_to_int(issue):
-    """Helper function, transforming issue of journal to an integer.
-    
-    Args:
-        issue (object): value from issue column of dtype object, containing the info either as numeric value, as list or as string.
-        
-    Returns:
-        Issue as integer, if the transformation was not successful the dummy value 0 is returned.
-    """
-    try: 
-        iss=int(issue)
-    except:
-        try:
-            iss=int(issue[0])
-        except:
-            iss=0
-    return iss

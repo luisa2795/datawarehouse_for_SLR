@@ -117,6 +117,38 @@ def calc_agg_columns(sentences_with_ents, papers_in_dwh):
     validity_w=validity.apply(lambda r: weigh_entity_by_heading(heading_pattern=".*result.*|.*method.*|.*measure.*|.*valid.*|.*discuss.*|.*conclusion.*", row=r, exclude_entities=['validity']), axis=1)
     va=validity_w.groupby(by='paper_pk')[['entity_name']].agg(lambda x: x.explode().mode()[0]).reset_index()
     papers_va=pd.merge(papers_ct, va, how='left', on='paper_pk').rename(columns={'entity_name': 'validity'}).fillna('MISSING')
+    #make sure the dummy paper entry is filled with only Missing values
+    papers_va=papers_va.drop(papers_va[papers_va.paper_pk==0].index)
+    dummy={
+        'paper_pk': 0,
+        'keywordgroup_pk': 0,
+        'authorgroup_pk': 0,
+        'journal_pk': 0,
+        'year': pd.to_datetime(1678, format='%Y').normalize(),
+        'title': 'MISSING',
+        'citekey': 'MISSING',
+        'abstract': 'MISSING',
+        'no_of_pages': 0,
+        'article_source_id': 0,
+        'model_element': 'MISSING',
+        'level': 'MISSING',
+        'participants': 'MISSING',
+        'no_of_participants': 0,
+        'collection_method': 'MISSING',
+        'sampling': 'MISSING',
+        'analysis_method': 'MISSING',
+        'sector': 'MISSING',
+        'region': 'MISSING',
+        'metric': 'MISSING',
+        'metric_value': 0,
+        'conceptual_method': 'MISSING',
+        'topic': 'MISSING',
+        'technology': 'MISSING',
+        'theory': 'MISSING',
+        'paradigm': 'MISSING',
+        'company_type': 'MISSING',
+        'validity': 'MISSING'}
+    papers_va=pd.concat([papers_va,pd.DataFrame([dummy])], ignore_index=True)
     return papers_va
 
 
