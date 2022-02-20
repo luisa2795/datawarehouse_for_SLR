@@ -45,7 +45,6 @@ if __name__ == "__main__":
         papers_in_dwh=db.load_full_table(eng, 'dim_paper')
         delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge=pape.find_delta_papers(final_source_papers, papers_in_dwh)
         #insert everything to db tables. Attention, order matters here to not violate foreign key constraints!
-        #TODO: make all inserts one transaction that rolls back when one insert fails
         db.insert_to_database(eng, delta_keywordgroup, 'dim_keywordgroup')
         db.insert_to_database(eng, delta_keywordbridge, 'bridge_paper_keyword')
         db.insert_to_database(eng, delta_authorgroup, 'dim_authorgroup')
