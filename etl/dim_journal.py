@@ -9,7 +9,7 @@ def extract_unique_journals_from_files():
     """
     from_papers=cof.load_sourcefile('papers_final.csv')[['journal', 'volume', 'issue', 'publisher', 'place']]
     from_references=cof.load_sourcefile('unique_references.csv')[['journal', 'volume', 'issue', 'publisher', 'place']]
-    all_journals=from_references.append(from_papers, ignore_index=True).rename(columns={'journal': 'title'})
+    all_journals=pd.concat([from_references,from_papers], ignore_index=True).rename(columns={'journal': 'title'})
     all_journals.dropna(axis=0, how='all', inplace=True)
     all_journals.fillna({'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, inplace=True)
     all_journals.volume=all_journals.volume.apply(lambda v: cof.volume_to_int(v))
@@ -35,7 +35,8 @@ def transform_delta_journals(source_journals, journals_in_dwh):
     delta_journals['journal_pk']=list(range(max_pk+1, max_pk+1+delta_journals.index.size))
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_journals=delta_journals.append({'journal_pk': 0, 'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}, ignore_index=True)
+        dummy_journal={'journal_pk': 0, 'title': 'MISSING', 'volume':0, 'issue': 0, 'publisher': 'MISSING', 'place': 'MISSING'}
+        delta_journals=pd.concat([delta_journals, pd.DataFrame([dummy_journal])], ignore_index=True)
     return delta_journals
 
 

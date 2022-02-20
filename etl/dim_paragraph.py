@@ -44,5 +44,6 @@ def find_delta_paragraphs(source_para_trans, para_in_dwh):
     delta_para['paragraph_pk']=list(range(max_pk+1, max_pk+1+delta_para.index.size))
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_para=delta_para.append({'paragraph_pk': 0, 'para_source_id': '0', 'heading': 'MISSING', 'subheading': 'MISSING', 'paragraph_type': 'MISSING', 'paper_pk': 0}, ignore_index=True)
+        dummy_para={'paragraph_pk': 0, 'para_source_id': '0', 'heading': 'MISSING', 'subheading': 'MISSING', 'paragraph_type': 'MISSING', 'paper_pk': 0}
+        delta_para=pd.concat([delta_para, pd.DataFrame([dummy_para])], ignore_index=True)
     return delta_para

@@ -66,10 +66,11 @@ def find_delta_sentences(transformed_sentences, sentences_in_dwh):
     delta_sentences['sentence_pk']=list(range(max_pk+1, max_pk+1+delta_sentences.index.size))
      #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_sentences=delta_sentences.append({'sentence_pk': 0, 'sentence_source_id': '0', 'sentence_string': 'MISSING', 'sentence_type': 'MISSING', 'citationgroup_pk': 0, 'paragraph_pk': 0}, ignore_index=True)
+        dummy_sent={'sentence_pk': 0, 'sentence_source_id': '0', 'sentence_string': 'MISSING', 'sentence_type': 'MISSING', 'citationgroup_pk': 0, 'paragraph_pk': 0}
+        delta_sentences=pd.concat([delta_sentences, pd.DataFrame([dummy_sent])], ignore_index=True)
     if max_citationgroup_pk==0:
-        delta_bridge_sentence_citation=delta_bridge_sentence_citation.append({'citationgroup_pk': 0, 'paper_pk': 0}, ignore_index=True)
-        delta_citationgroup=delta_citationgroup.append({'citationgroup_pk': 0}, ignore_index=True)
+        delta_bridge_sentence_citation=pd.concat([delta_bridge_sentence_citation, pd.DataFrame([{'citationgroup_pk': 0, 'paper_pk': 0}])], ignore_index=True)
+        delta_citationgroup=pd.concat([delta_citationgroup, pd.DataFrame([{'citationgroup_pk': 0}])], ignore_index=True)
     return delta_citationgroup, delta_bridge_sentence_citation, delta_sentences
 
 

@@ -40,8 +40,9 @@ def tramsform_delta_authors(source_authors, authors_in_dwh):
         completely_new['author_pk']=list(range(max_pk+1, max_pk+1+completely_new.index.size))
         #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
         if max_pk==0:
-            completely_new=completely_new.append({'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING'}, ignore_index=True)
-    #TODO if there is time, write function to overwrite 'email', 'department', 'institution', 'country' wen they are changed (SCD1) 
+            dummy_author={'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING'}
+            completely_new=pd.concat([completely_new, pd.DataFrame([dummy_author])], ignore_index=True)
+            #completely_new=completely_new.append({'author_pk': 0, 'surname': 'MISSING', 'firstname': 'MISSING', 'middlename': 'MISSING', 'email': 'MISSING', 'department': 'MISSING', 'institution': 'MISSING', 'country': 'MISSING'}, ignore_index=True)
     return completely_new
 
 def _clean_authors_from_references():
@@ -62,7 +63,7 @@ def _clean_authors_from_references():
     #first split every string in list from each other, then split into sublist pairs of two
     change1=change1.apply(lambda l: cof.split_into_lists_of_two_strings(l))
     #and append now corrected series again to keep
-    keep=keep.append(change1.explode())
+    keep=pd.concat([keep, change1.explode()], ignore_index=True)
     #those that are shorter must be changed
     change2=ref_aut[ref_aut.str.len()<2]
     #those that are shorter than 2 letters can be dropped
@@ -74,7 +75,7 @@ def _clean_authors_from_references():
     #keep only those that contain two strings
     change2=change2[change2.str.len()==2]
     #and append the transformed rows to keep
-    keep=keep.append(change2)
+    keep=pd.concat([keep, change2], ignore_index=True)
     #generate a new dataframe
     ref_aut_df=pd.DataFrame(keep)
     #split up authors column into surname and firstname

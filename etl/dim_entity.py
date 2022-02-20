@@ -18,7 +18,7 @@ def transform_delta_entities(source_entities, entities_in_dwh):
     """Finds delta between entities in the DB table and source entities and transforms the entities not yet present in DB.
     
     Args:
-        source_entities (DataFrame): df of entities fro source file with the columns ent_id, label and path.
+        source_entities (DataFrame): df of entities from source file with the columns ent_id, label and path.
         entities_in_dwh (DataFrame): rows of DB table dim_entity as pandas dataframe.
         
     Returns:
@@ -68,6 +68,5 @@ def transform_delta_entity_hierarchy_map(delta_entities, entitites_in_dwh):
     map_entity_hierarchy=pd.merge(map_entity_hierarchy, entitites_in_dwh, how='left', left_on='child', right_on='entity_name').drop(columns=['child', 'entity_label', 'entity_name']).rename(columns={'entity_pk': 'child_entity_pk'})
     #drop rows with missing values
     map_entity_hierarchy.dropna(axis=0, how='any', inplace=True)
-    #TODO: here we should check again to only return the delta of what is not yet in the hierarchy table!
     return map_entity_hierarchy
         

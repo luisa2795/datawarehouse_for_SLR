@@ -127,12 +127,13 @@ def find_delta_papers(source_papers, papers_in_dwh):
 
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_papers=delta_papers.append({'paper_pk': 0, 'article_source_id': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'authorgroup_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keywordgroup_pk': 0}, ignore_index=True)
+        dummy_paper={'paper_pk': 0, 'article_source_id': 0, 'citekey': 'MISSING', 'abstract': 'MISSING', 'year': pd.to_datetime(1678, format='%Y').normalize(), 'title': 'MISSING', 'authorgroup_pk': 0, 'no_of_pages': 0, 'journal_pk': 0,'keywordgroup_pk': 0}
+        delta_papers=pd.concat([delta_papers, pd.DataFrame([dummy_paper])], ignore_index=True)
     if max_group_pk==0:
-        delta_keywordbridge=delta_keywordbridge.append({'keywordgroup_pk': 0, 'keyword_pk': 0}, ignore_index=True)
-        delta_keywordgroup=delta_keywordgroup.append({'keywordgroup_pk': 0}, ignore_index=True)
-        delta_authorbridge=delta_authorbridge.append({'authorgroup_pk': 0, 'author_pk': 0, 'author_position': 0}, ignore_index=True)
-        delta_authorgroup=delta_authorgroup.append({'authorgroup_pk': 0}, ignore_index=True)
+        delta_keywordbridge=pd.concat([delta_keywordbridge, pd.DataFrame([{'keywordgroup_pk': 0, 'keyword_pk': 0}])], ignore_index=True)
+        delta_keywordgroup=pd.concat([delta_keywordgroup, pd.DataFrame([{'keywordgroup_pk': 0}])], ignore_index=True)
+        delta_authorbridge=pd.concat([delta_authorbridge, pd.DataFrame([{'authorgroup_pk': 0, 'author_pk': 0, 'author_position': 0}])], ignore_index=True)
+        delta_authorgroup=pd.concat([delta_authorgroup, pd.DataFrame([{'authorgroup_pk': 0}])], ignore_index=True)
     return delta_papers, delta_keywordgroup, delta_keywordbridge, delta_authorgroup, delta_authorbridge
 
 def _join_articles_keyword_pk(articles_df, keywords_df, engine):
@@ -238,7 +239,7 @@ def _prepare_reference_authors(references_df):
     #first split every string in list from each other, then split into sublist pairs of two
     change1.authors=change1.authors.apply(lambda l: cof.split_into_lists_of_two_strings(l)).explode()
     #and append now corrected series again to keep
-    keep.append(change1)
+    keep=pd.concat([keep, change1], ignore_index=True)
     #those that are shorter must be changed
     change2=references_df[references_df.authors.str.len()<2]
     #those that are shorter than 2 letters will be missing
@@ -252,13 +253,13 @@ def _prepare_reference_authors(references_df):
     change4=change3[change3.authors.str.len()==2]
     missing=change3[change3.authors.str.len()!=2]
     #and append the transformed rows to keep
-    ref_prep=keep.append(change4)
+    ref_prep=pd.concat([keep, change4], ignore_index=True)
     #split into firstname and surname
     ref_prep[['surname', 'firstname']]=pd.DataFrame(ref_prep.authors.tolist(), index=ref_prep.index)
     ref_prep.fillna({'surname': 'MISSING', 'firstname': 'MISSING'}, axis=0, inplace=True)
     #assign missing surname and firstname to missing and append it to final keep df
     missing=missing.assign(surname='MISSING', firstname='MISSING')
-    ref_prep=ref_prep.append(missing)
+    ref_prep=pd.concat([ref_prep, missing], ignore_index=True)
     #insert column for missing middlename
     ref_prep=ref_prep.assign(middlename='MISSING')
     return ref_prep

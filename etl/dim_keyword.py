@@ -33,7 +33,8 @@ def transform_delta_keywords(unique_keywords, keywords_in_dwh):
     delta_keyword_df['keyword_string']=delta_keywords
     #insert dummy row with primary key 0 if the table was empty before. Will serve as dummy for linked tables to avoid missing foreign keys in case of missing values
     if max_pk==0:
-        delta_keyword_df=delta_keyword_df.append({'keyword_pk': 0, 'keyword_string': 'MISSING'}, ignore_index=True)
+        dummy_keyword={'keyword_pk': 0, 'keyword_string': 'MISSING'}
+        delta_keyword_df=pd.concat([delta_keyword_df, pd.DataFrame([dummy_keyword])], ignore_index=True)
     return delta_keyword_df
 
 
