@@ -29,7 +29,7 @@ def transform_delta_entities(source_entities, entities_in_dwh):
     #first generate delta of dim_entity
     source_entities=source_entities.rename(columns={'ent_id': 'entity_name', 'label': 'entity_label'})
     outer=pd.merge(source_entities, entities_in_dwh, how='outer')[['entity_name', 'entity_label', 'ent_path']]
-    delta_entity=pd.concat([outer, entities_in_dwh]).drop_duplicates(keep=False)
+    delta_entity=pd.concat([outer, entities_in_dwh]).drop_duplicates(subset=['entity_name', 'entity_label'], keep=False)
     #use only name and label for dim_entity and add consecutive primary key
     delta_dim_entity=delta_entity[['entity_name', 'entity_label']].drop_duplicates()
     delta_dim_entity['entity_pk']=list(range(max_pk+1, max_pk+1+delta_dim_entity.index.size))
